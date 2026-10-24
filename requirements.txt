@@ -1,0 +1,11 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.34,<1.0
+streamlit>=1.50,<2.0
+httpx>=0.28,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.8,<3.0
+agent-framework-core==1.23.0
+agent-framework-openai==1.17.0
+openai>=3.37,<4.0
+filelock>=4.2,<5.0
+

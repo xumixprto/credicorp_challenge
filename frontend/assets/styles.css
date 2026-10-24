@@ -1,0 +1,47 @@
+[data-testid="stMainBlockContainer"] {
+    max-width: 1080px;
+    padding-top: 2.5rem;
+    padding-bottom: 2rem;
+}
+
+[data-testid="stSidebar"] {
+    border-right: 1px solid #e7ecef;
+}
+
+[data-testid="stSidebar"] button {
+    text-align: left;
+    border-radius: 0.65rem;
+}
+
+.st-key-welcome {
+    padding: 12vh 1rem 6vh;
+    text-align: center;
+    color: #526771;
+}
+
+.st-key-welcome h2 {
+    color: #172b3a;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+}
+
+[data-testid="stChatMessage"] {
+    border-radius: 1rem;
+    padding: 1rem 1.25rem;
+}
+
+[data-testid="stChatInput"] {
+    border-radius: 1rem;
+    border: 1px solid #d7e0e5;
+}
+
+@media (max-width: 640px) {
+    [data-testid="stMainBlockContainer"] {
+        padding-top: 1.25rem;
+    }
+
+    .st-key-welcome {
+        padding-top: 6vh;
+    }
+}
+
