@@ -120,6 +120,14 @@ def test_resume_after_restart_and_retry(
         assert client.post("/agent", json=PAYLOAD).status_code == 200
         forwarded = json.dumps(model_stub.requests[-2]["input"])
         assert "function_call_output" in forwarded
+        runs, _ = backend_app.state.judge_service.store.snapshot()
+        proposal = next(r for r in runs if r.request_id == "proposal")
+        assert proposal.status == "approval_required"
+        assert proposal.tools_json == []
+        continuations = [r for r in runs if r.message_type == "HUMAN_FLOW_REPLY"]
+        assert len(continuations) == 1
+        assert continuations[0].input_json["confirmation_id"] == confirmation_id
+        assert len(continuations[0].tools_json) == int(approved)
 
 
 def test_failed_continuation_never_reexecutes(backend_app, model_stub, trade_stub):

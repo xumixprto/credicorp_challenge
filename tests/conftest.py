@@ -78,6 +78,7 @@ def app_settings(tmp_path):
             {
                 "storage": {"root": str(tmp_path / "documents")},
                 "chroma": {"persist_directory": str(tmp_path / "chroma")},
+                "evaluation": {"directory": str(tmp_path / "evaluations")},
             }
         ),
         encoding="utf-8",

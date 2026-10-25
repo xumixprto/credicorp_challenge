@@ -8,6 +8,7 @@ from typing import Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
+from backend.app.evaluation.config import EvaluationConfig
 from shared.settings import PROJECT_ROOT
 
 
@@ -157,6 +158,7 @@ class ReindexConfig(ConfigModel):
 
 
 class DocumentConfig(ConfigModel):
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     parsing: ParsingConfig = Field(default_factory=ParsingConfig)

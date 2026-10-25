@@ -91,3 +91,15 @@ retrieval:
 reindex:
   force_reparse: false
   force_reembed: false
+
+# Local run traces and LLM-as-a-judge evaluations. See backend/app/evaluation/README.md.
+evaluation:
+  directory: data/evaluations
+  judge_model: gpt-4.1-mini
+  k: 5
+  batch_size: 3
+  max_concurrency: 2
+  max_input_tokens: 250000
+  max_output_tokens: 15000
+  timeout_seconds: 90
+  max_retries: 1

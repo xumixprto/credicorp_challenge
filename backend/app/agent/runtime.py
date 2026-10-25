@@ -21,9 +21,11 @@ from openai import (
 from backend.app.agent.prompts import SYSTEM_INSTRUCTIONS
 from backend.app.core.config import Settings
 from backend.app.core.errors import ApplicationError
+from backend.app.evaluation.trace import active_run
 from backend.app.middleware.agent_logging import AgentLoggingMiddleware
 from backend.app.middleware.function_logging import FunctionLoggingMiddleware
 from backend.app.middleware.tool_approval import ToolApprovalMiddleware
+from backend.app.middleware.tool_trace import ToolTraceMiddleware
 from backend.app.tools import get_tools
 
 logger = logging.getLogger("credicorp.backend.agent")
@@ -32,6 +34,13 @@ logger = logging.getLogger("credicorp.backend.agent")
 def build_agent(
     settings: Settings, client: AsyncOpenAI, alpaca: MCPStdioTool | None = None
 ) -> Agent:
+    local_tools = get_tools(settings)
+    trace = active_run.get()
+    if trace is not None:
+        trace.configuration_json["available_tools"] = [
+            {"name": tool.name, "description": tool.description, "parameters": tool.parameters()}
+            for tool in [*local_tools, *(alpaca.functions if alpaca is not None else [])]
+        ]
     return Agent(
         id="credicorp-agent",
         name="CredicorpAgent",
@@ -42,11 +51,12 @@ def build_agent(
             if alpaca is not None
             else "\nAlpaca is not configured in this server. Live market data is unavailable."
         ),
-        tools=[*get_tools(settings), *([alpaca] if alpaca is not None else [])],
+        tools=[*local_tools, *([alpaca] if alpaca is not None else [])],
         context_providers=[InMemoryHistoryProvider(source_id="conversation-history")],
         middleware=[
             AgentLoggingMiddleware(),
             ToolApprovalMiddleware(),
+            ToolTraceMiddleware(),
             FunctionLoggingMiddleware(),
         ],
         default_options={"store": False},

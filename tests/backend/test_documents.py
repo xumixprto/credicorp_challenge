@@ -370,6 +370,7 @@ def test_config_parameters_are_validated_and_documented():
     config = load_config(PROJECT_ROOT / "config.yaml")
     assert config == DocumentConfig()
     documentation = (PROJECT_ROOT / "backend/app/documents/README.md").read_text(encoding="utf-8")
+    documentation += (PROJECT_ROOT / "backend/app/evaluation/README.md").read_text(encoding="utf-8")
 
     def check_fields(value, prefix=""):
         for key, child in value.items():

@@ -13,11 +13,13 @@ if str(Path(__file__).resolve().parents[1]) not in sys.path:
 
 from frontend.components.chat import render_chat
 from frontend.components.documents import render_documents
+from frontend.components.judge import render_judge
 from frontend.components.reindex import render_reindex
 from frontend.components.sidebar import render_navigation, render_sidebar
 from frontend.core.config import get_settings
 from frontend.services.agent_client import AgentAPIError, AgentClient
 from frontend.services.document_client import DocumentClient
+from frontend.services.judge_client import JudgeClient
 from frontend.state.chat import initialize_state
 from shared.conversations import ConversationDetail
 from shared.logging_config import configure_logging
@@ -39,6 +41,11 @@ def main() -> None:
         logging.getLogger("credicorp.frontend").info("browser_session_started")
         st.session_state.session_logged = True
     workspace = render_navigation()
+    if workspace == "Judge":
+        render_judge(
+            JudgeClient(str(settings.api_base_url), timeout=settings.judge_api_timeout_seconds)
+        )
+        return
     if workspace in {"Document Ingestion", "Reindex"}:
         render_page = render_documents if workspace == "Document Ingestion" else render_reindex
         render_page(

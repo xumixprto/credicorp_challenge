@@ -41,6 +41,7 @@ class APIClient:
         request_id: str | None = None,
         session_id: str | None = None,
         timeout_message: str | None = None,
+        decode_json: bool = True,
         **kwargs,
     ) -> Result:
         request_id = request_id or str(uuid4())
@@ -58,7 +59,7 @@ class APIClient:
                 )
             status_code = response.status_code
             response.raise_for_status()
-            result = validate(response.json())
+            result = validate(response.json() if decode_json else response.content)
         except (httpx.HTTPError, ValueError) as exc:
             if isinstance(exc, httpx.TimeoutException):
                 message = timeout_message or self.timeout_message

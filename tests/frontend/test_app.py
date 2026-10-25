@@ -52,7 +52,12 @@ def test_chat_round_trip_and_separate_conversations(monkeypatch, backend_app):
         )
         app = AppTest.from_file(str(PROJECT_ROOT / "frontend" / "app.py")).run()
         assert not app.exception
-        assert app.sidebar.radio[0].options == ["Agent Chat", "Document Ingestion", "Reindex"]
+        assert app.sidebar.radio[0].options == [
+            "Agent Chat",
+            "Document Ingestion",
+            "Reindex",
+            "Judge",
+        ]
         assert len(app.chat_input) == 1
 
         app.chat_input[0].set_value("thanks!").run()

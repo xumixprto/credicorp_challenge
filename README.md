@@ -132,7 +132,7 @@ Start the frontend in another terminal:
 - API docs and interactive requests: <http://127.0.0.1:8000/docs>
 - Health: <http://127.0.0.1:8000/health>
 
-These commands use the virtual environment directly, so activation is optional.
+Commands starting with `.venv` use that environment directly, so activation is optional for them.
 To activate it in PowerShell, run `.\.venv\Scripts\Activate.ps1`.
 
 For Bash on Windows (for example, Git Bash), activate it from the repository root with:
@@ -152,7 +152,7 @@ python -m streamlit run frontend/app.py
 
 **Windows Git Bash:**
 
-Use the standard command above first. The application now redirects only MCP subprocess stderr
+Use the standard command above. The application redirects only MCP subprocess stderr
 to `logs/alpaca-mcp.log`. The regular command has been verified in Git Bash without shell
 redirection on this Windows setup. In another terminal:
 
@@ -160,17 +160,8 @@ redirection on this Windows setup. In another terminal:
 tail -f logs/alpaca-mcp.log
 ```
 
-**Fallback diagnostic command (if startup still fails):** The earlier whole-process redirection
-is retained below for troubleshooting. It is not the normal startup command.
-
-```bash
-mkdir -p .artifacts
-.venv/Scripts/python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 --no-access-log > .artifacts/git-bash-startup.log 2>&1
-```
-
-In a second Git Bash terminal, use `tail -f .artifacts/git-bash-startup.log` to follow startup and
-Uvicorn diagnostics. MCP subprocess diagnostics remain in `logs/alpaca-mcp.log`, and application
-JSON logs remain in `logs/backend.log`.
+Uvicorn diagnostics appear in the terminal. Application JSON logs are also saved in
+`logs/backend.log`. No shell redirection is needed.
 
 The standalone `streamlit run frontend/app.py` command also works in the activated environment.
 
@@ -199,8 +190,8 @@ should listen on the VM's network interfaces. One worker matches the current loc
 setup and starts one Alpaca MCP subprocess. Run it under the VM's service manager for automatic
 startup and restart.
 
-The standard Linux startup is expected to work without the Git Bash output-redirection workaround;
-this repository has been tested on Windows, not yet validated on a Linux VM. The MCP launcher uses
+The Linux deployment command has not yet been validated on a Linux VM; this repository has been
+tested on Windows. The MCP launcher uses
 the active Python interpreter and supports Linux. The VM service user needs writable document,
 Chroma, session, log, and uv cache directories, plus outbound access for package/model downloads
 and the configured APIs. Keep document and session directories on persistent storage.
@@ -236,6 +227,18 @@ The frontend uses `CHAT_USER_ID` and generates a separate session UUID per chat.
 identifiers restores that conversation's framework state before running the next message.
 There is no authentication yet; user IDs partition local development data, rather than proving
 the caller's identity.
+
+Run traces and evaluations are also available in the **Judge** tab. Each new agent invocation is
+recorded in `data/evaluations/runs.csv`; `POST /judge` evaluates selected or missing runs in batches
+and saves scores to `evaluations.csv`, replacing the previous evaluation for each run.
+`GET /judge` includes runs not evaluated yet. The UI shows
+the latest 50 rows with selection checkboxes and **Evaluate selected / Evaluate Missing Runs**.
+Alongside retrieval and grounding metrics, **Tool usage** and **Intention success** assess the
+agent's tool choices and whether it fulfilled the request (0 failed, 0.5 partial, 1 successful).
+Existing evaluations become stale under rubric 2.0; **Evaluate Missing Runs** adds the new scores
+by replacing each run's previous evaluation.
+See the [evaluation README](backend/app/evaluation/README.md) for CSV schemas, curl examples,
+configuration, metric definitions, and reference labels needed for recall@k.
 
 Additional endpoints used by Streamlit:
 
@@ -372,24 +375,27 @@ backend/
   app/
     main.py                Application factory and lifecycle
     api/router.py          Route registration
-    api/routes/            Health, agent, conversation, and document endpoints
+    api/routes/            Health, agent, conversation, document, and judge endpoints
     agent/                 Agent factory, OpenAI runtime, and system instructions
     middleware/            Request tracing, API errors, and agent invocation logging
     tools/                 Retrieval tool, evidence formatting, Alpaca MCP lifecycle, and registry
     repositories/          JSON storage, atomic writes, and conversation locking
     documents/             Docling, HybridChunker, embedding cache, and persistent Chroma indexing
+    evaluation/            CSV traces, batch LLM judge, scoring, and evaluation orchestration
+      metrics/             Independent retrieval and answer metric calculations
     schemas/               Validated request/response models
     services/              Restore, run, and save conversation orchestration
     core/                  Backend configuration and application errors
 frontend/
   app.py                   Streamlit entry point
-  components/              Sidebar, chat, ingestion, and reindex rendering
+  components/              Sidebar, chat, ingestion, reindex, and judge rendering
   services/                FastAPI HTTP client and error handling
   state/                   Active chat and temporary pending/retry state
   core/                    Frontend configuration
   assets/                  UI styling
 shared/
   conversations.py         Shared API contracts
+  evaluations.py           Shared run/evaluation CSV and HTTP contracts
   logging_config.py        JSON logging
   settings.py              Common settings
   sessions/
@@ -400,8 +406,8 @@ tests/
 .streamlit/config.toml     Theme and local server defaults
 .env.example              Configuration template
 logs/                     Generated logs, ignored by Git
-config.yaml               Central document-pipeline configuration
-data/                     Generated original documents, artifacts, cache, and Chroma (Git-ignored)
+config.yaml               Central document-pipeline and evaluation configuration
+data/                     Generated originals, cache, Chroma, and evaluation CSVs (Git-ignored)
 ```
 
 Edit `backend/app/agent/prompts.py` for system instructions. Add future tools under
@@ -467,7 +473,8 @@ after changing settings.
 | `API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by Streamlit |
 | `API_TIMEOUT_SECONDS` | `90` | Streamlit HTTP timeout; keep above the agent timeout |
 | `DOCUMENT_API_TIMEOUT_SECONDS` | `600` | Streamlit HTTP timeout for ingestion and reindexing |
-| `OPENAI_API_KEY` | Empty | Required for generating replies and document embeddings |
+| `JUDGE_API_TIMEOUT_SECONDS` | `600` | Streamlit HTTP timeout for judge batches |
+| `OPENAI_API_KEY` | Empty | Required for generating replies, embeddings, and judge evaluations |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Model passed to the OpenAI provider |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Maximum duration of an agent run |
 | `RETRIEVAL_API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by the agent retrieval tool |
@@ -481,7 +488,7 @@ after changing settings.
 | `ALPACA_MCP_REQUEST_TIMEOUT_SECONDS` | `30` | Individual MCP request timeout; also applies during startup |
 | `CHAT_USER_ID` | UUID from the example above | Stable Streamlit development identity |
 | `SESSIONS_DIR` | `shared/sessions` | Storage root, absolute or relative to this repo |
-| `DOCS_CONFIG_PATH` | `config.yaml` | Central document-pipeline YAML configuration |
+| `DOCS_CONFIG_PATH` | `config.yaml` | Central document-pipeline and evaluation YAML configuration |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR, or CRITICAL |
 | `LOG_DIR` | `logs` | Absolute path or path relative to this repo |
 | `LOG_MAX_BYTES` | `5242880` | Rotate each log after 5 MiB |

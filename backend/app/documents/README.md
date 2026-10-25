@@ -229,3 +229,9 @@ References: [Docling chunking](https://docling-project.github.io/docling/concept
 [HybridChunker](https://docling-project.github.io/docling/_generated/examples/hybrid_chunking/),
 [OpenAI embeddings](https://developers.openai.com/api/docs/guides/embeddings),
 [Chroma HNSW configuration](https://docs.trychroma.com/docs/collections/configure).
+
+## Agent evaluation settings
+
+The root `config.yaml` also has an `evaluation` section. It does not change document parsing,
+embedding, or index signatures. See [evaluation configuration](../evaluation/README.md) for every
+judge parameter, CSV schema, and retrieval/answer metric definition.

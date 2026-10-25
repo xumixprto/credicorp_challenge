@@ -1,14 +1,19 @@
 import asyncio
 import logging
+from copy import deepcopy
 from hashlib import sha256
+from time import perf_counter
 from uuid import UUID
 
 from agent_framework import AgentResponse as FrameworkResponse
 from agent_framework import AgentSession, Content, Message
 from filelock import Timeout
 
+from backend.app.agent.prompts import SYSTEM_INSTRUCTIONS
 from backend.app.agent.runtime import AgentRuntime
 from backend.app.core.errors import ApplicationError
+from backend.app.evaluation.storage import EvaluationStore
+from backend.app.evaluation.trace import active_run
 from backend.app.repositories.conversations import (
     ConversationRepository,
     StoredApproval,
@@ -22,15 +27,85 @@ from shared.conversations import (
     OperationConfirmation,
     utc_now,
 )
+from shared.evaluations import RunRecord
 
 logger = logging.getLogger("credicorp.backend.agent")
 BLOCKING_STATUSES = {"pending", "processing", "outcome_unknown"}
 
 
 class AgentService:
-    def __init__(self, repository: ConversationRepository, runtime: AgentRuntime) -> None:
+    def __init__(
+        self,
+        repository: ConversationRepository,
+        runtime: AgentRuntime,
+        evaluations: EvaluationStore | None = None,
+    ) -> None:
         self.repository = repository
         self.runtime = runtime
+        self.evaluations = evaluations
+
+    async def _run(
+        self,
+        value: str | Message,
+        session: AgentSession,
+        record: StoredConversation,
+        request: AgentRequest,
+        request_id: str,
+    ) -> FrameworkResponse:
+        if self.evaluations is None:
+            return await self.runtime.run(value, session)
+        trace = RunRecord(
+            request_id=request_id,
+            user_id=str(request.user_id),
+            session_id=request.session_id,
+            message_type=request.message_type,
+            model=self.runtime.settings.openai_model,
+            query=request.query
+            or next((m.content for m in reversed(record.messages) if m.role == "user"), ""),
+            input_json=request.model_dump(mode="json"),
+            context_json=deepcopy(record.agent_session),
+            configuration_json={
+                "system_instructions": SYSTEM_INSTRUCTIONS,
+                "retrieval_tool_max_tokens": self.runtime.settings.retrieval_tool_max_tokens,
+                "alpaca_paper_trade": self.runtime.settings.alpaca_paper_trade,
+                "alpaca_toolsets": self.runtime.settings.alpaca_toolsets,
+            },
+        )
+        # Fail before model/tool execution if even the initial run cannot be recorded.
+        try:
+            await asyncio.to_thread(self.evaluations.save_run, trace)
+        except Exception:
+            raise ApplicationError(503, "Run trace storage is unavailable.") from None
+        token = active_run.set(trace)
+        started = perf_counter()
+        try:
+            result = await self.runtime.run(value, session)
+            trace.status = "approval_required" if result.user_input_requests else "completed"
+            trace.answer = result.text
+            trace.response_json = [message.to_dict() for message in result.messages]
+            trace.usage_json = dict(result.usage_details or {})
+            return result
+        except BaseException as exc:
+            trace.status = "error"
+            trace.error_type = type(exc).__name__
+            raise
+        finally:
+            active_run.reset(token)
+            trace.finished_at = utc_now()
+            trace.duration_ms = round((perf_counter() - started) * 1000, 2)
+            try:
+                await asyncio.to_thread(self.evaluations.save_run, trace)
+            except Exception:
+                # A trace failure must never cause a successful trade to be replayed.
+                logger.error("run_trace_save_failed", extra={"run_id": trace.run_id})
+            logger.info(
+                "agent_run_recorded",
+                extra={
+                    "run_id": trace.run_id,
+                    "session_id": trace.session_id,
+                    "status": trace.status,
+                },
+            )
 
     def _account_fingerprint(self) -> str:
         settings = self.runtime.settings
@@ -89,7 +164,7 @@ class AgentService:
                     )
 
                 session = AgentSession.from_dict(record.agent_session)
-                result = await self.runtime.run(request.query, session)
+                result = await self._run(request.query, session, record, request, request_id)
                 response = self._response(record, result)
                 if not record.messages:
                     title = " ".join(request.query.split())
@@ -156,7 +231,7 @@ class AgentService:
         )
         try:
             # This is a NEW run with restored state; no coroutine was kept waiting.
-            result = await self.runtime.run(reply, session)
+            result = await self._run(reply, session, record, request, request_id)
         except (Exception, asyncio.CancelledError):
             if not request.approved:
                 # Rejecting executes no write, so the same rejection can safely be retried.

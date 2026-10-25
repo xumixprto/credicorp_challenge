@@ -13,6 +13,9 @@ request_id_context: ContextVar[str | None] = ContextVar("request_id", default=No
 _configuration_lock = Lock()
 _context_fields = (
     "request_id",
+    "run_id",
+    "status",
+    "batch_count",
     "session_id",
     "function_name",
     "confirmation_id",

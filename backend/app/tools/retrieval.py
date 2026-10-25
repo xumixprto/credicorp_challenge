@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import math
+from time import perf_counter
 from typing import Annotated
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from pydantic import Field
 
 from backend.app.core.config import Settings
 from backend.app.documents.models import RetrieveResponse
+from backend.app.evaluation.trace import active_run
 from shared.logging_config import request_id_context
 
 logger = logging.getLogger("credicorp.backend.tools.retrieval")
@@ -68,6 +70,22 @@ class DocumentRetriever:
         self.transport = transport
 
     async def retrieve(self, query: str) -> dict:
+        trace = active_run.get()
+        entry = {"retrieval_id": str(uuid4()), "query": query, "status": "running"}
+        if trace is not None:
+            trace.retrievals_json.append(entry)
+        started = perf_counter()
+        try:
+            payload = await self._retrieve(query, entry)
+            entry.update(status=payload["status"], visible_evidence=payload)
+            return payload
+        except BaseException as exc:
+            entry.update(status="error", error_type=type(exc).__name__)
+            raise
+        finally:
+            entry["duration_ms"] = round((perf_counter() - started) * 1000, 2)
+
+    async def _retrieve(self, query: str, entry: dict) -> dict:
         query = query.strip()
         if not query or len(query) > 32000:
             return {"status": "error", "error": "invalid_query", "results": []}
@@ -85,6 +103,7 @@ class DocumentRetriever:
             status_code = response.status_code
             response.raise_for_status()
             result = RetrieveResponse.model_validate(response.json())
+            entry["raw_response"] = result.model_dump(mode="json")
             payload = format_evidence(result, self.settings.retrieval_tool_max_tokens)
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning(

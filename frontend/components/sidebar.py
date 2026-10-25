@@ -13,7 +13,7 @@ def render_navigation() -> str:
         st.caption("AGENT WORKSPACE")
         selected = st.radio(
             "Workspace",
-            ["Agent Chat", "Document Ingestion", "Reindex"],
+            ["Agent Chat", "Document Ingestion", "Reindex", "Judge"],
             key="workspace",
             label_visibility="collapsed",
         )

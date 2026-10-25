@@ -178,3 +178,12 @@ def test_framework_calls_retrieval_endpoint_and_forwards_evidence(
     assert evidence["status"] == "ok"
     assert evidence["results"][0]["text"] == evidence_response().hits[0].text
     assert evidence["results"][0]["sources"][0]["filename"] == "nvda.pdf"
+    runs, _ = backend_app.state.judge_service.store.snapshot()
+    assert len(runs) == 1
+    trace = runs[0]
+    retrieval = trace.retrievals_json[0]
+    assert retrieval["raw_response"]["collection"] == "documents_test"
+    assert retrieval["raw_response"]["hits"][0]["text"] == evidence_response().hits[0].text
+    assert retrieval["visible_evidence"] == evidence
+    assert trace.tools_json[0]["name"] == "retrieve_documents"
+    assert trace.tools_json[0]["status"] == "completed"

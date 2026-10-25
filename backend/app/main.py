@@ -9,12 +9,17 @@ from backend.app.agent.runtime import AgentRuntime
 from backend.app.api.router import api_router
 from backend.app.core.config import Settings, get_settings
 from backend.app.documents.service import DocumentService
+from backend.app.evaluation.config import load_evaluation_config
+from backend.app.evaluation.judge import OpenAIJudge
+from backend.app.evaluation.service import JudgeService
+from backend.app.evaluation.storage import EvaluationStore
 from backend.app.middleware.errors import register_error_handlers
 from backend.app.middleware.requests import register_request_logging
 from backend.app.repositories.conversations import ConversationRepository
 from backend.app.services.agent import AgentService
 from backend.app.tools.alpaca import alpaca_connection
 from shared.logging_config import configure_logging
+from shared.settings import PROJECT_ROOT
 
 
 def create_app(
@@ -44,8 +49,15 @@ def create_app(
 
     application = FastAPI(title=settings.api_title, version="0.3.0", lifespan=lifespan)
     repository = ConversationRepository(settings.resolved_sessions_dir)
+    evaluation_config = load_evaluation_config(settings.docs_config_path)
+    evaluations = EvaluationStore(PROJECT_ROOT / evaluation_config.directory)
+    application.state.judge_service = JudgeService(
+        evaluations,
+        evaluation_config,
+        OpenAIJudge(evaluation_config, settings.openai_api_key.get_secret_value()),
+    )
     application.state.conversations = repository
-    application.state.agent_service = AgentService(repository, agent_runtime)
+    application.state.agent_service = AgentService(repository, agent_runtime, evaluations)
     register_request_logging(application)
     register_error_handlers(application)
     application.include_router(api_router)
