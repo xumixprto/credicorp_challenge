@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from agent_framework import Agent, AgentSession, InMemoryHistoryProvider
+from agent_framework import Agent, AgentSession, InMemoryHistoryProvider, MCPStdioTool
 from agent_framework.openai import OpenAIChatClient
 from openai import (
     APIConnectionError,
@@ -21,13 +21,20 @@ from backend.app.tools import get_tools
 logger = logging.getLogger("credicorp.backend.agent")
 
 
-def build_agent(settings: Settings, client: AsyncOpenAI) -> Agent:
+def build_agent(
+    settings: Settings, client: AsyncOpenAI, alpaca: MCPStdioTool | None = None
+) -> Agent:
     return Agent(
         id="credicorp-agent",
         name="CredicorpAgent",
         client=OpenAIChatClient(model=settings.openai_model, async_client=client),
-        instructions=SYSTEM_INSTRUCTIONS,
-        tools=get_tools(settings),
+        instructions=SYSTEM_INSTRUCTIONS
+        + (
+            "\nAlpaca tools are connected; use their advertised schemas."
+            if alpaca is not None
+            else "\nAlpaca is not configured in this server. Live market data is unavailable."
+        ),
+        tools=[*get_tools(settings), *([alpaca] if alpaca is not None else [])],
         context_providers=[InMemoryHistoryProvider(source_id="conversation-history")],
         middleware=[AgentLoggingMiddleware(), FunctionLoggingMiddleware()],
         default_options={"store": False},
@@ -37,6 +44,7 @@ def build_agent(settings: Settings, client: AsyncOpenAI) -> Agent:
 class AgentRuntime:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.alpaca: MCPStdioTool | None = None
 
     async def run(self, query: str, session: AgentSession) -> str:
         key = self.settings.openai_api_key.get_secret_value().strip()
@@ -49,7 +57,9 @@ class AgentRuntime:
                 async with AsyncOpenAI(
                     api_key=key, timeout=self.settings.agent_timeout_seconds, max_retries=0
                 ) as client:
-                    result = await build_agent(self.settings, client).run(query, session=session)
+                    result = await build_agent(self.settings, client, self.alpaca).run(
+                        query, session=session
+                    )
                     if not result.text.strip():
                         raise ApplicationError(
                             502, "The agent returned an empty reply. Please retry."

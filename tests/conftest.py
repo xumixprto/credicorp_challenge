@@ -84,6 +84,7 @@ def app_settings(tmp_path):
     )
     return Settings(
         openai_api_key="test-key",
+        alpaca_mcp_enabled=False,
         sessions_dir=tmp_path / "sessions",
         docs_config_path=config_path,
         _env_file=None,

@@ -2,7 +2,7 @@
 
 A FastAPI backend and a Streamlit chat application powered by Microsoft Agent Framework and
 OpenAI. The sidebar switches between **Agent Chat**, with saved conversations and a chat composer,
-and **Document Ingestion**, with drag-and-drop document uploads. Chat context and messages survive
+**Document Ingestion**, with drag-and-drop document uploads, and **Reindex**. Chat context and messages survive
 browser refreshes and application restarts.
 
 ## Setup
@@ -36,9 +36,83 @@ This project pins Microsoft Agent Framework core **1.23.0** and its independentl
 OpenAI provider **1.17.0**. It uses the Responses API with local framework history (`store=False`).
 The framework's current name for a conversation thread is `AgentSession`.
 
+## Alpaca MCP
+
+The backend launches **Alpaca MCP Server 2.4.0** automatically through `uv`, connects with
+Agent Framework's `MCPStdioTool`, and discovers its tools. No VS Code MCP configuration or extra
+HTTP port is needed. Install the updated requirements in the backend's virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Add your keys and selected toolsets to the root `.env` (keep secrets out of `.env.example`):
+
+```dotenv
+ALPACA_MCP_ENABLED=true
+ALPACA_API_KEY=your-alpaca-key
+ALPACA_SECRET_KEY=your-alpaca-secret
+ALPACA_PAPER_TRADE=true
+ALPACA_TOOLSETS=stock-data,assets,news
+```
+
+Restart FastAPI using the usual command below. `uv` downloads the pinned server on its first
+launch into an isolated environment; downloads need internet access. The connection uses
+`MCPStdioTool` directly, launching `python -m uv tool run alpaca-mcp-server==2.4.0` with
+FastAPI's own Python interpreter. This is equivalent to `uvx` and uses uv's standard cache;
+it does not depend on shell activation or finding a global executable on PATH.
+One MCP subprocess is reused across conversations per backend worker and closed on shutdown.
+
+`stock-data,assets,news` enables market research. To include account and trading tools, use your
+selected `stock-data,trading,news,account` configuration. Paper mode must use paper-account keys;
+live mode uses live-account keys and `ALPACA_PAPER_TRADE=false`. These credentials are backend-wide:
+all chat users share the configured Alpaca account; `userId` only separates conversation history.
+`HUMAN_FLOW_REPLY` remains an empty placeholder and does not implement trade confirmations.
+
+Supported toolsets: `account`, `trading`, `watchlists`, `assets`, `stock-data`, `crypto-data`,
+`options-data`, `corporate-actions`, `news`, `fixed-income-data`, and `locates`. Blank or unknown
+toolsets fail validation instead of silently enabling everything. The pinned upstream server also
+advertises documentation tools and shared historical-data helpers. Tools are prefixed `alpaca_`
+to avoid name collisions with local tools. See [Alpaca's MCP documentation](https://docs.alpaca.markets/us/docs/trading-api-mcp).
+
+Try **"Get the latest NVDA quote using the IEX feed, including its timestamp."** The agent can
+combine Alpaca market data with the existing document retrieval tool. It is instructed to preserve
+timestamps, distinguish feeds and financial periods, and report missing data or provider errors.
+MCP results are sent to OpenAI and retained in the framework conversation history.
+
+Check `logs/backend.log` for `alpaca_mcp_starting`, `alpaca_mcp_connected` (including tool count),
+and `alpaca_mcp_stopped`. Existing function middleware logs each tool name, request/session ID,
+duration, and failures without arguments, results, or keys. The MCP subprocess's stderr is appended
+to `logs/alpaca-mcp.log` (under `LOG_DIR` if configured), avoiding Git Bash terminal handle issues.
+A small `MCPStdioTool` subclass supplies the SDK's `errlog` file; the SDK still manages the connection
+and process cleanup. Uvicorn and application logs continue to appear in the terminal.
+This raw subprocess log does not use the application's JSON formatter or automatic rotation.
+Discovery confirms connectivity, not credential validity;
+Alpaca validates credentials when a tool calls its API.
+Startup failures include a `reason` field with configured API secrets redacted. Check `alpaca-mcp.log`
+for subprocess output such as package download failures, which may precede the MCP exception.
+With these pinned versions, the SDK's initial `server/discover` probe can produce validation
+warnings in `alpaca-mcp.log` before falling back to its supported handshake. Successful startup
+is indicated by `alpaca_mcp_connected`; no custom protocol workaround is applied.
+
+If both keys are absent, Alpaca is skipped and document chat still works. A partial key pair or a
+configured server that cannot start produces an actionable startup error. Set
+`ALPACA_MCP_ENABLED=false` to run without Alpaca. The SDK handles connection setup and cleanup;
+`ALPACA_MCP_REQUEST_TIMEOUT_SECONDS` controls its request timeout, including initialization.
+For a slow first download, run
+`.\.venv\Scripts\python.exe -m uv tool run alpaca-mcp-server==2.4.0 --help` once to cache the package.
+Restart FastAPI after
+changing keys/toolsets or if the MCP subprocess exits unexpectedly.
+
 ## Run
 
-Start the backend in one terminal:
+Standard development startup, with the virtual environment activated:
+
+```bash
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+The equivalent command on Windows without activating the environment is:
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 --no-access-log
@@ -54,8 +128,8 @@ Start the frontend in another terminal:
 - API docs and interactive requests: <http://127.0.0.1:8000/docs>
 - Health: <http://127.0.0.1:8000/health>
 
-These commands use the virtual environment directly, so PowerShell activation is optional.
-To activate it, run `.\.venv\Scripts\Activate.ps1`.
+These commands use the virtual environment directly, so activation is optional.
+To activate it in PowerShell, run `.\.venv\Scripts\Activate.ps1`.
 
 For Bash on Windows (for example, Git Bash), activate it from the repository root with:
 
@@ -72,10 +146,61 @@ source .venv/Scripts/activate
 python -m streamlit run frontend/app.py
 ```
 
+**Windows Git Bash:**
+
+Use the standard command above first. The application now redirects only MCP subprocess stderr
+to `logs/alpaca-mcp.log`. The regular command has been verified in Git Bash without shell
+redirection on this Windows setup. In another terminal:
+
+```bash
+tail -f logs/alpaca-mcp.log
+```
+
+**Fallback diagnostic command (if startup still fails):** The earlier whole-process redirection
+is retained below for troubleshooting. It is not the normal startup command.
+
+```bash
+mkdir -p .artifacts
+.venv/Scripts/python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000 --no-access-log > .artifacts/git-bash-startup.log 2>&1
+```
+
+In a second Git Bash terminal, use `tail -f .artifacts/git-bash-startup.log` to follow startup and
+Uvicorn diagnostics. MCP subprocess diagnostics remain in `logs/alpaca-mcp.log`, and application
+JSON logs remain in `logs/backend.log`.
+
 The standalone `streamlit run frontend/app.py` command also works in the activated environment.
 
 On macOS/Linux, use `.venv/bin/python` in place of `.\.venv\Scripts\python.exe`.
 Stop either process with **Ctrl+C**.
+
+### Linux VM
+
+Create the environment on the VM and install runtime dependencies. Use `requirements.txt`;
+the Windows development lock file contains platform-specific packages.
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Configure the root `.env` or the VM service's environment variables, then run from the repository
+root. For a deployed server, omit development auto-reload:
+
+```bash
+.venv/bin/python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+```
+
+This binds to localhost for a reverse proxy on the same VM. Use `--host 0.0.0.0` if the server
+should listen on the VM's network interfaces. One worker matches the current local file logging
+setup and starts one Alpaca MCP subprocess. Run it under the VM's service manager for automatic
+startup and restart.
+
+The standard Linux startup is expected to work without the Git Bash output-redirection workaround;
+this repository has been tested on Windows, not yet validated on a Linux VM. The MCP launcher uses
+the active Python interpreter and supports Linux. The VM service user needs writable document,
+Chroma, session, log, and uv cache directories, plus outbound access for package/model downloads
+and the configured APIs. Keep document and session directories on persistent storage.
+No existing `.artifacts` files or diagnostic scripts are required.
 
 ## API
 
@@ -172,7 +297,7 @@ backend/
     api/routes/            Health, agent, conversation, and document endpoints
     agent/                 Agent factory, OpenAI runtime, and system instructions
     middleware/            Request tracing, API errors, and agent invocation logging
-    tools/                 Retrieval HTTP tool, evidence formatting, and tool registration
+    tools/                 Retrieval tool, evidence formatting, Alpaca MCP lifecycle, and registry
     repositories/          JSON storage, atomic writes, and conversation locking
     documents/             Docling, HybridChunker, embedding cache, and persistent Chroma indexing
     schemas/               Validated request/response models
@@ -270,6 +395,12 @@ after changing settings.
 | `RETRIEVAL_API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by the agent retrieval tool |
 | `RETRIEVAL_TOOL_TIMEOUT_SECONDS` | `30` | Retrieval HTTP timeout, within the overall agent timeout |
 | `RETRIEVAL_TOOL_MAX_TOKENS` | `8000` | Tool evidence budget using cl100k_base; range 256–32000 |
+| `ALPACA_MCP_ENABLED` | `true` | Connect Alpaca when both credentials are configured |
+| `ALPACA_API_KEY` | Empty | Alpaca API key, passed only to the MCP subprocess |
+| `ALPACA_SECRET_KEY` | Empty | Alpaca secret key, passed only to the MCP subprocess |
+| `ALPACA_PAPER_TRADE` | `true` | Use the paper trading environment; requires matching keys |
+| `ALPACA_TOOLSETS` | `stock-data,assets,news` | Comma-separated toolsets; the example file may select account/trading too |
+| `ALPACA_MCP_REQUEST_TIMEOUT_SECONDS` | `30` | Individual MCP request timeout; also applies during startup |
 | `CHAT_USER_ID` | UUID from the example above | Stable Streamlit development identity |
 | `SESSIONS_DIR` | `shared/sessions` | Storage root, absolute or relative to this repo |
 | `DOCS_CONFIG_PATH` | `config.yaml` | Central document-pipeline YAML configuration |
@@ -316,6 +447,10 @@ incur no API charges. Checks cover restored context after restart, user/session 
 browser refreshes, retries, atomic write failures, corrupt files, model failures, and concurrent turns.
 Document tests exercise real Docling parsing/chunking and persistent Chroma with mocked embedding
 HTTP responses, including duplicate detection, updates, restart recovery, and safe reindexing.
+Alpaca tests use a real local MCP subprocess with deterministic fixture tools and the mocked OpenAI
+boundary. They verify tool discovery, execution, errors, shared lifecycle, logging, and cleanup
+without calling Alpaca APIs or placing orders. Alpaca itself runs in a separate uv environment;
+its pinned package is declared in `backend/app/tools/alpaca.py`, outside the backend lock file.
 
 Framework references: [FastAPI request models](https://fastapi.tiangolo.com/tutorial/body/),
 [Streamlit chat UI](https://docs.streamlit.io/develop/tutorials/chat-and-llm-apps/build-conversational-apps),

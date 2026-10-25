@@ -15,6 +15,7 @@ _context_fields = (
     "request_id",
     "session_id",
     "function_name",
+    "tool_count",
     "collection",
     "content_hash",
     "document_count",
