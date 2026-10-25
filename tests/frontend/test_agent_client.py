@@ -24,6 +24,7 @@ def test_client_posts_expected_payload_and_request_id():
         "userId": "user-1",
         "query": "thanks!",
         "sessionId": "session-1",
+        "messageType": "TEXT",
     }
 
 

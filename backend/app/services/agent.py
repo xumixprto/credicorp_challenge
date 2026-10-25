@@ -31,6 +31,9 @@ class AgentService:
             raise ApplicationError(409, "This conversation is busy. Please try again.") from None
 
     async def create_reply(self, request: AgentRequest, request_id: str) -> AgentResponse:
+        if request.message_type == "HUMAN_FLOW_REPLY":
+            # Reserved for the upcoming human-flow implementation. No model or history mutation.
+            return AgentResponse(message="")
         try:
             async with self.repository.lock(request.user_id, request.session_id):
                 record = await asyncio.to_thread(

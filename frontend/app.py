@@ -13,6 +13,7 @@ if str(Path(__file__).resolve().parents[1]) not in sys.path:
 
 from frontend.components.chat import render_chat
 from frontend.components.documents import render_documents
+from frontend.components.reindex import render_reindex
 from frontend.components.sidebar import render_navigation, render_sidebar
 from frontend.core.config import get_settings
 from frontend.services.agent_client import AgentAPIError, AgentClient
@@ -37,8 +38,10 @@ def main() -> None:
     if "session_logged" not in st.session_state:
         logging.getLogger("credicorp.frontend").info("browser_session_started")
         st.session_state.session_logged = True
-    if render_navigation() == "Document Ingestion":
-        render_documents(
+    workspace = render_navigation()
+    if workspace in {"Document Ingestion", "Reindex"}:
+        render_page = render_documents if workspace == "Document Ingestion" else render_reindex
+        render_page(
             DocumentClient(
                 str(settings.api_base_url), timeout=float(settings.document_api_timeout_seconds)
             )

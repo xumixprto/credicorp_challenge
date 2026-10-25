@@ -27,7 +27,7 @@ def build_agent(settings: Settings, client: AsyncOpenAI) -> Agent:
         name="CredicorpAgent",
         client=OpenAIChatClient(model=settings.openai_model, async_client=client),
         instructions=SYSTEM_INSTRUCTIONS,
-        tools=get_tools(),
+        tools=get_tools(settings),
         context_providers=[InMemoryHistoryProvider(source_id="conversation-history")],
         middleware=[AgentLoggingMiddleware(), FunctionLoggingMiddleware()],
         default_options={"store": False},

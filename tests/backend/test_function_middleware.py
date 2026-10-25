@@ -22,7 +22,7 @@ def test_agent_tool_calls_use_function_middleware(backend_app, model_stub, monke
             raise RuntimeError("private exception text")
         return "private tool result"
 
-    monkeypatch.setattr("backend.app.agent.runtime.get_tools", lambda: [probe])
+    monkeypatch.setattr("backend.app.agent.runtime.get_tools", lambda settings: [probe])
     original_respond = model_stub.respond
 
     async def respond(request):

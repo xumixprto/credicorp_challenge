@@ -40,6 +40,7 @@ class APIClient:
         *,
         request_id: str | None = None,
         session_id: str | None = None,
+        timeout_message: str | None = None,
         **kwargs,
     ) -> Result:
         request_id = request_id or str(uuid4())
@@ -60,7 +61,7 @@ class APIClient:
             result = validate(response.json())
         except (httpx.HTTPError, ValueError) as exc:
             if isinstance(exc, httpx.TimeoutException):
-                message = self.timeout_message
+                message = timeout_message or self.timeout_message
             elif isinstance(exc, httpx.HTTPStatusError):
                 message = "The request could not be completed. Please try again."
                 if status_code in {400, 404, 409, 413, 422, 429, 502, 503, 504}:

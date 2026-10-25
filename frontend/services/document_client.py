@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import BinaryIO
 
 from frontend.services.api_client import APIClient
-from shared.documents import IngestResponse
+from shared.documents import IngestResponse, ReindexResponse
 
 
 @dataclass(frozen=True)
@@ -34,4 +34,16 @@ class DocumentClient(APIClient):
                 ("files", (upload.filename, upload.stream, upload.content_type))
                 for upload in uploads
             ],
+        )
+
+    def reindex(self, *, force_reparse: bool, force_reembed: bool) -> ReindexResponse:
+        return self._request(
+            "POST",
+            "/docs/reindex",
+            ReindexResponse.model_validate,
+            json={"force_reparse": force_reparse, "force_reembed": force_reembed},
+            timeout_message=(
+                "The reindex request timed out. The rebuild may still finish on the server. "
+                "Check the backend logs before starting another rebuild."
+            ),
         )

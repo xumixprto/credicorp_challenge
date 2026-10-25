@@ -24,7 +24,12 @@ class AgentClient(APIClient):
             validate,
             request_id=request_id,
             session_id=session_id,
-            json={"userId": user_id, "query": query, "sessionId": session_id},
+            json={
+                "userId": user_id,
+                "query": query,
+                "sessionId": session_id,
+                "messageType": "TEXT",
+            },
         )
 
     def list_conversations(self, user_id: str) -> list[ConversationSummary]:

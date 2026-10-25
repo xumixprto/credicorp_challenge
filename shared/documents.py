@@ -1,4 +1,4 @@
-"""Document ingestion contracts shared by FastAPI and Streamlit."""
+"""Document ingestion/reindex contracts shared by FastAPI and Streamlit."""
 
 from typing import Literal
 
@@ -23,3 +23,14 @@ class IngestResponse(BaseModel):
     results: list[IngestResult]
     embedded_texts: int = Field(default=0, ge=0)
     cached_texts: int = Field(default=0, ge=0)
+
+
+class ReindexResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    collection: str
+    previous_collection: str | None
+    documents: int = Field(ge=0)
+    chunks: int = Field(ge=0)
+    embedded_texts: int = Field(ge=0)
+    cached_texts: int = Field(ge=0)

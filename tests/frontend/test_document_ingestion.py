@@ -1,3 +1,4 @@
+import json
 from email.parser import BytesParser
 from email.policy import default
 from functools import partial
@@ -179,3 +180,80 @@ def test_document_page_rejects_duplicate_filenames(monkeypatch):
     ).run()
     assert app.button(key="ingest_documents").disabled
     assert "same name" in app.warning[0].value
+
+
+@pytest.mark.parametrize(
+    "reparse,reembed", [(False, False), (True, False), (False, True), (True, True)]
+)
+def test_reindex_page_sends_selected_flags_and_retains_results(monkeypatch, reparse, reembed):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "collection": "new",
+                "previous_collection": "old",
+                "documents": 2,
+                "chunks": 10,
+                "embedded_texts": 3,
+                "cached_texts": 7,
+            },
+        )
+
+    app = document_app(monkeypatch, handle).sidebar.radio[0].set_value("Reindex").run()
+    assert not app.exception
+    assert not app.checkbox(key="reindex_force_reparse").value
+    assert not app.checkbox(key="reindex_force_reembed").value
+    app.checkbox(key="reindex_force_reparse").set_value(reparse)
+    app.checkbox(key="reindex_force_reembed").set_value(reembed).run()
+    assert not requests
+    app.button(key="reindex_documents").click().run()
+    assert not app.exception
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/docs/reindex"
+    assert json.loads(requests[0].content) == {
+        "force_reparse": reparse,
+        "force_reembed": reembed,
+    }
+    assert UUID(requests[0].headers["X-Request-ID"])
+    assert requests[0].extensions["timeout"]["read"] == 600
+    assert "2 document(s)" in app.success[0].value
+    assert [metric.value for metric in app.metric] == ["10", "3", "7"]
+    app.sidebar.radio[0].set_value("Document Ingestion").run()
+    app.sidebar.radio[0].set_value("Reindex").run()
+    assert app.success
+    assert len(requests) == 1
+
+
+def test_reindex_page_timeout_shows_reference_and_can_retry(monkeypatch):
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        if len(requests) == 1:
+            raise httpx.ReadTimeout("private detail", request=request)
+        return httpx.Response(
+            200,
+            json={
+                "collection": "new",
+                "previous_collection": "old",
+                "documents": 0,
+                "chunks": 0,
+                "embedded_texts": 0,
+                "cached_texts": 0,
+            },
+        )
+
+    app = document_app(monkeypatch, handle).sidebar.radio[0].set_value("Reindex").run()
+    app.button(key="reindex_documents").click().run()
+    assert not app.exception
+    assert "rebuild may still finish" in app.error[0].value
+    assert "private detail" not in app.error[0].value
+    assert any("Reference:" in caption.value for caption in app.caption)
+    app.button(key="reindex_documents").click().run()
+    assert not app.exception
+    assert not app.error
+    assert app.success

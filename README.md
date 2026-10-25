@@ -87,7 +87,8 @@ Stop either process with **Ctrl+C**.
 {
   "userId": "d5bbf9d1-5945-44d8-bb10-0065164a8356",
   "query": "thanks!",
-  "sessionId": "test-session-1001"
+  "sessionId": "test-session-1001",
+  "messageType": "TEXT"
 }
 ```
 
@@ -99,6 +100,9 @@ It returns HTTP 200 with the model's answer, for example:
 
 `userId` must be a UUID. `query` must contain 1–20,000 characters after trimming, and
 `sessionId` must contain 1–128 characters. Missing, invalid, or extra fields return HTTP 422.
+`messageType` accepts `TEXT` (the default when omitted) or `HUMAN_FLOW_REPLY`. Streamlit sends
+`TEXT`. `HUMAN_FLOW_REPLY` is a reserved placeholder: it returns `{"message":""}` without calling
+the model or changing conversation history; its required `query` field may be empty.
 The frontend uses `CHAT_USER_ID` and generates a separate session UUID per chat. Reusing both
 identifiers restores that conversation's framework state before running the next message.
 There is no authentication yet; user IDs partition local development data, rather than proving
@@ -128,6 +132,7 @@ $payload = @{
     userId = "d5bbf9d1-5945-44d8-bb10-0065164a8356"
     query = "thanks!"
     sessionId = "test-session-1001"
+    messageType = "TEXT"
 } | ConvertTo-Json
 Invoke-RestMethod -Uri http://127.0.0.1:8000/agent -Method Post -ContentType application/json -Body $payload
 ```
@@ -145,6 +150,13 @@ is shown. Results distinguish added, updated, unchanged, duplicate, and failed d
 serve as source IDs: upload the same name to update a document; different documents need distinct
 names. Results stay visible when switching sections, and switching does not resubmit files.
 
+Choose **Reindex** to rebuild the saved document library. Both checkboxes default to unchecked:
+**Force reparse** bypasses saved parsing results; **Force reembed** regenerates embeddings and
+incurs OpenAI embedding usage costs. Click **Reindex documents** to submit the selected flags to
+`/docs/reindex`. A loading indicator runs until completion, then document/chunk counts and generated
+versus reused embeddings appear. Results remain visible across navigation without resubmitting.
+If rebuilding times out, check the backend logs before starting another rebuild.
+
 Document requests use `DOCUMENT_API_TIMEOUT_SECONDS` (600 seconds by default), independently of chat
 requests. If a request times out, the backend may finish processing; retry the same files to check
 their status. The backend enforces the limits and supported formats from `config.yaml`; Streamlit's
@@ -160,7 +172,7 @@ backend/
     api/routes/            Health, agent, conversation, and document endpoints
     agent/                 Agent factory, OpenAI runtime, and system instructions
     middleware/            Request tracing, API errors, and agent invocation logging
-    tools/                 Future tool registration (currently empty)
+    tools/                 Retrieval HTTP tool, evidence formatting, and tool registration
     repositories/          JSON storage, atomic writes, and conversation locking
     documents/             Docling, HybridChunker, embedding cache, and persistent Chroma indexing
     schemas/               Validated request/response models
@@ -168,7 +180,7 @@ backend/
     core/                  Backend configuration and application errors
 frontend/
   app.py                   Streamlit entry point
-  components/              Sidebar and chat rendering
+  components/              Sidebar, chat, ingestion, and reindex rendering
   services/                FastAPI HTTP client and error handling
   state/                   Active chat and temporary pending/retry state
   core/                    Frontend configuration
@@ -190,12 +202,27 @@ data/                     Generated original documents, artifacts, cache, and Ch
 ```
 
 Edit `backend/app/agent/prompts.py` for system instructions. Add future tools under
-`backend/app/tools/` and return them from `get_tools()`. The agent factory already uses this
+`backend/app/tools/` and return them from `get_tools(settings)`. The agent factory already uses this
 registry. `middleware/agent_logging.py` wraps each agent run, and
 `middleware/function_logging.py` wraps individual function/tool calls. Function middleware logs
 the function name, request/session IDs, duration, and error type while leaving arguments and
 results out of the logs. Both are registered in the agent factory; future tools automatically
 use them.
+
+The agent's `retrieve_documents` tool posts `{"query":"..."}` to `/docs/retrieve`. The system
+instructions tell the model to use it for questions about uploaded documents and financial filings.
+The tool validates the endpoint response, sorts and deduplicates chunks, and returns structured
+evidence with stable citation labels, filenames, source URLs, pages, headings, and table row references.
+Complete chunks retain their original figures, units, and periods. A configurable token budget omits
+whole chunks instead of cutting rows; the output reports omitted results, empty searches, and errors
+separately. The model composes the final answer from this evidence and is instructed to cite sources
+and treat retrieved text as untrusted data. Retrieved evidence is sent to the OpenAI chat model and
+saved as part of the local framework conversation history.
+
+Set `RETRIEVAL_API_BASE_URL` to the backend address reachable from the backend process (default
+`http://127.0.0.1:8000`). Update it if you change the API port or deployment address. The tool uses
+the retrieval defaults in `config.yaml`, including the result count and distance filter. Requests
+carry the original chat's `X-Request-ID` so retrieval and function middleware logs can be correlated.
 
 ## Saved conversations
 
@@ -236,10 +263,13 @@ after changing settings.
 | --- | --- | --- |
 | `API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by Streamlit |
 | `API_TIMEOUT_SECONDS` | `90` | Streamlit HTTP timeout; keep above the agent timeout |
-| `DOCUMENT_API_TIMEOUT_SECONDS` | `600` | Streamlit HTTP timeout for document uploads and ingestion |
+| `DOCUMENT_API_TIMEOUT_SECONDS` | `600` | Streamlit HTTP timeout for ingestion and reindexing |
 | `OPENAI_API_KEY` | Empty | Required for generating replies and document embeddings |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Model passed to the OpenAI provider |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Maximum duration of an agent run |
+| `RETRIEVAL_API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by the agent retrieval tool |
+| `RETRIEVAL_TOOL_TIMEOUT_SECONDS` | `30` | Retrieval HTTP timeout, within the overall agent timeout |
+| `RETRIEVAL_TOOL_MAX_TOKENS` | `8000` | Tool evidence budget using cl100k_base; range 256–32000 |
 | `CHAT_USER_ID` | UUID from the example above | Stable Streamlit development identity |
 | `SESSIONS_DIR` | `shared/sessions` | Storage root, absolute or relative to this repo |
 | `DOCS_CONFIG_PATH` | `config.yaml` | Central document-pipeline YAML configuration |

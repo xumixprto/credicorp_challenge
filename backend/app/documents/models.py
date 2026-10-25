@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from backend.app.documents.config import DocumentConfig
 from shared.documents import IngestResponse as IngestResponse
 from shared.documents import IngestResult as IngestResult
+from shared.documents import ReindexResponse as ReindexResponse
 
 
 class DataModel(BaseModel):
@@ -46,15 +47,6 @@ class ActiveIndex(DataModel):
 class ReindexRequest(DataModel):
     force_reparse: bool | None = None
     force_reembed: bool | None = None
-
-
-class ReindexResponse(DataModel):
-    collection: str
-    previous_collection: str | None
-    documents: int
-    chunks: int
-    embedded_texts: int
-    cached_texts: int
 
 
 class RetrieveRequest(DataModel):

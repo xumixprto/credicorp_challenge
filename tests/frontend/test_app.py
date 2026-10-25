@@ -52,7 +52,7 @@ def test_chat_round_trip_and_separate_conversations(monkeypatch, backend_app):
         )
         app = AppTest.from_file(str(PROJECT_ROOT / "frontend" / "app.py")).run()
         assert not app.exception
-        assert app.sidebar.radio[0].options == ["Agent Chat", "Document Ingestion"]
+        assert app.sidebar.radio[0].options == ["Agent Chat", "Document Ingestion", "Reindex"]
         assert len(app.chat_input) == 1
 
         app.chat_input[0].set_value("thanks!").run()
@@ -60,6 +60,7 @@ def test_chat_round_trip_and_separate_conversations(monkeypatch, backend_app):
         assert app.chat_message[0].markdown[0].value == "thanks!"
         assert app.chat_message[1].markdown[0].value == "Hello World"
         first_session = requests[0]["sessionId"]
+        assert requests[0]["messageType"] == "TEXT"
 
         app.chat_input[0].set_value("One more message").run()
         assert requests[1]["sessionId"] == first_session
