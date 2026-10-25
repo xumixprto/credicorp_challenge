@@ -8,22 +8,21 @@ PAYLOAD = {
 }
 
 
-def test_human_flow_placeholder_does_not_call_model_or_mutate_history(
+def test_human_flow_requires_a_decision_without_mutating_history(
     backend_app, app_settings, model_stub
 ):
     with TestClient(backend_app) as client:
         response = client.post(
             "/agent", json={**PAYLOAD, "messageType": "HUMAN_FLOW_REPLY", "query": ""}
         )
-        assert response.status_code == 200
-        assert response.json() == {"message": ""}
+        assert response.status_code == 422
         assert not model_stub.requests
         assert not list(app_settings.sessions_dir.rglob("*.json"))
         assert client.post("/agent", json={**PAYLOAD, "messageType": "TEXT"}).status_code == 200
         saved = {path: path.read_bytes() for path in app_settings.sessions_dir.rglob("*.json")}
         assert saved
         response = client.post("/agent", json={**PAYLOAD, "messageType": "HUMAN_FLOW_REPLY"})
-        assert response.json() == {"message": ""}
+        assert response.status_code == 422
         assert len(model_stub.requests) == 1
         assert saved == {path: path.read_bytes() for path in saved}
 

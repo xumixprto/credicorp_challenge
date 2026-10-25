@@ -2,14 +2,19 @@
 
 import logging
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from agent_framework import MCPStdioTool
+from agent_framework import Content, MCPStdioTool
+from agent_framework.exceptions import ToolExecutionException
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.types import RequestParamsMeta
+from opentelemetry.trace import Span
 
 from backend.app.core.config import Settings
+from backend.app.middleware.tool_approval import is_alpaca_write
 
 logger = logging.getLogger("credicorp.backend.alpaca")
 ALPACA_SERVER_PACKAGE = "alpaca-mcp-server==2.4.0"
@@ -21,6 +26,33 @@ class AlpacaStdioTool(MCPStdioTool):
     def __init__(self, *, stderr_path: Path, **kwargs) -> None:
         super().__init__(**kwargs)
         self.stderr_path = stderr_path
+
+    async def _call_tool_with_retries(
+        self,
+        tool_name: str,
+        filtered_kwargs: dict[str, Any],
+        meta: RequestParamsMeta | None,
+        parser: Callable[..., str | list[Content]],
+        span: Span,
+    ) -> str | list[Content]:
+        # SDK 1.23 retries disconnected tool calls. A write may already have reached Alpaca.
+        # Keep the SDK behavior for reads; never automatically replay an order or other write.
+        if not is_alpaca_write(f"alpaca_{tool_name}"):
+            return await super()._call_tool_with_retries(
+                tool_name, filtered_kwargs, meta, parser, span
+            )
+        try:
+            result = await self._require_connection().call_tool(
+                tool_name, filtered_kwargs, meta=meta
+            )
+        except Exception as exc:
+            raise ToolExecutionException(
+                "Alpaca operation outcome is unknown. Check Alpaca before proposing "
+                "another order; the call was not retried."
+            ) from exc
+        if result.is_error:
+            raise ToolExecutionException(str(parser(result)))
+        return parser(result)
 
     @asynccontextmanager
     async def get_mcp_client(self) -> AsyncIterator[tuple]:

@@ -40,6 +40,35 @@ class AgentClient(APIClient):
             params={"userId": user_id},
         )
 
+    def confirm_operation(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        confirmation_id: str,
+        approved: bool,
+        request_id: str,
+    ) -> None:
+        def validate(payload: object) -> None:
+            if not isinstance(payload, dict) or not isinstance(payload.get("message"), str):
+                raise ValueError("Invalid agent response")
+
+        self._request(
+            "POST",
+            "/agent",
+            validate,
+            request_id=request_id,
+            session_id=session_id,
+            json={
+                "userId": user_id,
+                "sessionId": session_id,
+                "query": "",
+                "messageType": "HUMAN_FLOW_REPLY",
+                "confirmationId": confirmation_id,
+                "approved": approved,
+            },
+        )
+
     def get_conversation(self, user_id: str, session_id: str) -> ConversationDetail:
         return self._request(
             "GET",

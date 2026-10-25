@@ -35,6 +35,133 @@
     border: 1px solid #d7e0e5;
 }
 
+/* Approval cards use real Streamlit controls; these styles only change presentation. */
+[class*="st-key-approval_card_"] {
+    max-width: 680px;
+    border: 1px solid #dce6e7;
+    border-radius: 18px;
+    padding: 1.5rem;
+    background: #fff;
+    box-shadow: 0 4px 20px rgba(23, 43, 58, 0.04);
+}
+
+.approval-topline, .approval-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.approval-topline {
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.approval-eyebrow {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #60747d;
+}
+
+.approval-mode {
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.approval-mode--paper {
+    background: #eaf5f2;
+    color: #146658;
+}
+
+.approval-mode--live {
+    background: #fff0e4;
+    color: #99420c;
+}
+
+.approval-heading {
+    margin-top: 1.25rem;
+}
+
+.approval-heading h3 {
+    margin: 0;
+    padding: 0;
+    font-size: 1.75rem;
+    font-weight: 650;
+    letter-spacing: -0.04em;
+    overflow-wrap: anywhere;
+}
+
+.approval-icon {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: #edf4f5;
+    color: #0f766e;
+    font-size: 1.5rem;
+}
+
+.approval-description {
+    margin: 0.8rem 0 1.25rem;
+    font-size: 0.86rem;
+    line-height: 1.6;
+    color: #60747d;
+}
+
+.approval-details {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    border: 1px solid #e7edef;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #e7edef;
+}
+
+.approval-detail {
+    padding: 0.85rem 1rem;
+    background: #f7f9fa;
+    min-width: 0;
+}
+
+.approval-detail dt {
+    color: #647780;
+    font-size: 0.75rem;
+    margin-bottom: 0.4rem;
+}
+
+.approval-detail dd {
+    color: #172b3a;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+[class*="st-key-approval_card_"] button {
+    min-height: 44px;
+    border-radius: 10px;
+}
+
+@media (max-width: 640px) {
+    [class*="st-key-approval_card_"] {
+        padding: 1rem;
+    }
+
+    .approval-details {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .approval-heading h3 {
+        font-size: 1.45rem;
+    }
+}
+
 @media (max-width: 640px) {
     [data-testid="stMainBlockContainer"] {
         padding-top: 1.25rem;
@@ -44,4 +171,3 @@
         padding-top: 6vh;
     }
 }
-

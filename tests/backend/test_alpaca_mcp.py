@@ -233,3 +233,67 @@ def test_agent_mcp_round_trip_lifecycle_and_function_logging(
     assert "Alpaca fixture started" not in capfd.readouterr().err
     # On Windows this also verifies the inherited file handle was released on shutdown.
     stderr_path.rename(stderr_path.with_suffix(".closed.log"))
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_actual_mcp_write_requires_approval(
+    app_settings, model_stub, monkeypatch, tmp_path, approved
+):
+    orders = tmp_path / "orders.jsonl"
+
+    def parameters(settings):
+        return AlpacaStdioTool(
+            stderr_path=tmp_path / "alpaca-mcp.log",
+            name="alpaca",
+            tool_name_prefix="alpaca",
+            load_prompts=False,
+            command=sys.executable,
+            args=[str(Path(__file__).parents[1] / "fixtures" / "alpaca_mcp_server.py")],
+            env={"TEST_ALPACA_ORDER_LOG": str(orders)},
+        )
+
+    monkeypatch.setattr("backend.app.tools.alpaca.create_alpaca_tool", parameters)
+    original = model_stub.respond
+
+    async def respond(request):
+        response = await original(request)
+        if len(model_stub.requests) == 1:
+            body = response.json()
+            body["output"] = [
+                {
+                    "type": "function_call",
+                    "id": "fc_trade",
+                    "call_id": "call_trade",
+                    "name": "alpaca_place_stock_order",
+                    "status": "completed",
+                    "arguments": json.dumps({"symbol": "AAPL", "qty": 1, "side": "buy"}),
+                }
+            ]
+            return httpx2.Response(200, json=body)
+        return response
+
+    monkeypatch.setattr(model_stub, "respond", respond)
+    payload = {
+        "userId": "d5bbf9d1-5945-44d8-bb10-0065164a8356",
+        "sessionId": "mcp-approval",
+        "query": "Buy one AAPL",
+    }
+    with TestClient(create_app(configured(app_settings))) as client:
+        response = client.post("/agent", json=payload)
+        assert response.status_code == 200, response.text
+        confirmation = response.json()["confirmations"][0]
+        assert not orders.exists()
+        reply = {
+            **payload,
+            "query": "",
+            "messageType": "HUMAN_FLOW_REPLY",
+            "confirmationId": confirmation["confirmationId"],
+            "approved": approved,
+        }
+        response = client.post("/agent", json=reply)
+        assert response.status_code == 200, response.text
+        assert client.post("/agent", json=reply).json() == response.json()
+        if approved:
+            assert len(orders.read_text(encoding="utf-8").splitlines()) == 1
+        else:
+            assert not orders.exists()

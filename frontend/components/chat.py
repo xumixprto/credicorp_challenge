@@ -1,5 +1,6 @@
 import streamlit as st
 
+from frontend.components.confirmations import render_confirmations
 from frontend.services.agent_client import AgentAPIError, AgentClient
 from frontend.state.chat import PendingTurn, queue_message
 from shared.conversations import ConversationDetail
@@ -48,7 +49,10 @@ def render_chat(client: AgentClient, conversation: ConversationDetail) -> None:
             st.session_state.pending_turns.pop(conversation.session_id, None)
             st.rerun()
 
-    if prompt := st.chat_input("Message the agent...", max_chars=20000, disabled=turn is not None):
+    awaiting_approval = render_confirmations(client, conversation)
+    if prompt := st.chat_input(
+        "Message the agent...", max_chars=20000, disabled=turn is not None or awaiting_approval
+    ):
         query = prompt.strip()
         if not query:
             st.warning("Please enter a message before sending.")

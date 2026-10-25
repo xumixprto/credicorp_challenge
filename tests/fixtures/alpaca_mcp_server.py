@@ -1,11 +1,22 @@
 """Local MCP protocol fixture. No Alpaca credentials, network, or account actions."""
 
+import json
 import os
 import sys
+from pathlib import Path
 
 from mcp.server import MCPServer
 
 server = MCPServer("Test Alpaca")
+
+
+@server.tool()
+def place_stock_order(symbol: str, qty: int, side: str) -> dict:
+    """Record a fake order locally; never contact a broker."""
+    order = {"symbol": symbol, "qty": qty, "side": side, "status": "accepted"}
+    with Path(os.environ["TEST_ALPACA_ORDER_LOG"]).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(order) + "\n")
+    return order
 
 
 @server.tool()

@@ -67,7 +67,10 @@ One MCP subprocess is reused across conversations per backend worker and closed 
 selected `stock-data,trading,news,account` configuration. Paper mode must use paper-account keys;
 live mode uses live-account keys and `ALPACA_PAPER_TRADE=false`. These credentials are backend-wide:
 all chat users share the configured Alpaca account; `userId` only separates conversation history.
-`HUMAN_FLOW_REPLY` remains an empty placeholder and does not implement trade confirmations.
+Alpaca write operations require an explicit `HUMAN_FLOW_REPLY` confirmation, including in paper
+mode. Buying, selling, replacing/canceling orders, closing positions, and other writes are gated.
+Read tools whose names start with `get_`, `list_`, `search_`, or `fetch_` remain automatic;
+unrecognized Alpaca actions require approval by default.
 
 Supported toolsets: `account`, `trading`, `watchlists`, `assets`, `stock-data`, `crypto-data`,
 `options-data`, `corporate-actions`, `news`, `fixed-income-data`, and `locates`. Blank or unknown
@@ -84,8 +87,9 @@ Check `logs/backend.log` for `alpaca_mcp_starting`, `alpaca_mcp_connected` (incl
 and `alpaca_mcp_stopped`. Existing function middleware logs each tool name, request/session ID,
 duration, and failures without arguments, results, or keys. The MCP subprocess's stderr is appended
 to `logs/alpaca-mcp.log` (under `LOG_DIR` if configured), avoiding Git Bash terminal handle issues.
-A small `MCPStdioTool` subclass supplies the SDK's `errlog` file; the SDK still manages the connection
-and process cleanup. Uvicorn and application logs continue to appear in the terminal.
+A small `MCPStdioTool` subclass supplies the SDK's `errlog` file and disables automatic retries
+of write calls after connection loss. Read calls retain SDK retry behavior. The SDK still manages
+the connection and process cleanup. Uvicorn and application logs continue to appear in the terminal.
 This raw subprocess log does not use the application's JSON formatter or automatic rotation.
 Discovery confirms connectivity, not credential validity;
 Alpaca validates credentials when a tool calls its API.
@@ -226,8 +230,8 @@ It returns HTTP 200 with the model's answer, for example:
 `userId` must be a UUID. `query` must contain 1–20,000 characters after trimming, and
 `sessionId` must contain 1–128 characters. Missing, invalid, or extra fields return HTTP 422.
 `messageType` accepts `TEXT` (the default when omitted) or `HUMAN_FLOW_REPLY`. Streamlit sends
-`TEXT`. `HUMAN_FLOW_REPLY` is a reserved placeholder: it returns `{"message":""}` without calling
-the model or changing conversation history; its required `query` field may be empty.
+`TEXT`. `HUMAN_FLOW_REPLY` submits a decision for a saved operation, as described below; its
+`query` must be empty or omitted.
 The frontend uses `CHAT_USER_ID` and generates a separate session UUID per chat. Reusing both
 identifiers restores that conversation's framework state before running the next message.
 There is no authentication yet; user IDs partition local development data, rather than proving
@@ -238,7 +242,7 @@ Additional endpoints used by Streamlit:
 | Method and path | Input | Result |
 | --- | --- | --- |
 | `GET /conversations` | Query: `userId` | That user's chats, most recently updated first |
-| `GET /conversations/detail` | Query: `userId`, `sessionId` | Saved title and visible messages |
+| `GET /conversations/detail` | Query: `userId`, `sessionId` | Saved title, messages, and confirmations |
 | `POST /conversations` | JSON: `userId`, optional `sessionId` | Create an empty saved chat |
 
 Conversation APIs do not expose the internal framework session. Missing keys return 503 from
@@ -249,6 +253,80 @@ without an OpenAI key.
 For retries, reuse the original `X-Request-ID`. A completed turn is returned without another model
 call or duplicate messages. Reusing the same ID with different text returns 409. Streamlit manages
 these IDs automatically.
+
+### Human approval and continuation
+
+When the agent proposes an Alpaca write, `ToolApprovalMiddleware` returns a native Agent Framework
+`function_approval_request` without executing the tool. The run **ends**, the API saves the framework
+session and approval in that conversation's JSON, and HTTP 200 contains:
+
+```json
+{
+  "message": "Please confirm or reject the proposed operation(s).",
+  "status": "confirmation_required",
+  "confirmations": [{
+    "confirmationId": "d397f786-6e6b-44ad-9f55-f42330793517",
+    "toolName": "alpaca_place_stock_order",
+    "arguments": {"symbol": "AAPL", "qty": 1, "side": "buy", "type": "market", "time_in_force": "day"},
+    "paperTrading": true,
+    "status": "pending",
+    "createdAt": "2026-10-24T20:00:00Z"
+  }]
+}
+```
+
+The actual arguments follow the selected tool's schema. Inspect them before deciding. Submit the
+returned confirmation ID with the **same userId and sessionId**; do not resend or edit arguments:
+
+```bash
+curl http://127.0.0.1:8000/agent \
+  -H 'Content-Type: application/json' \
+  -H 'X-Request-ID: approval-reply-1001' \
+  -d '{
+    "userId": "d5bbf9d1-5945-44d8-bb10-0065164a8356",
+    "sessionId": "test-session-1001",
+    "messageType": "HUMAN_FLOW_REPLY",
+    "confirmationId": "REPLACE_WITH_RETURNED_CONFIRMATION_ID",
+    "approved": true,
+    "query": ""
+  }'
+```
+
+Use `approved: false` to reject. Plain chat text such as "yes" never approves a tool. Multiple
+proposals have separate IDs and require separate decisions. A continuation may propose another
+operation; its response then contains another `confirmation_required` result.
+
+**Restore point:** [`AgentService._continue`](backend/app/services/agent.py) calls
+`AgentSession.from_dict(record.agent_session)`, rebuilds the saved approval with `Content.from_dict`,
+and supplies `to_function_approval_response(approved=...)` to a new `runtime.run(...)`. Framework
+binding ties the response to the original tool and arguments. No HTTP request or coroutine waits
+for the human. Pending approvals currently have no expiry and survive a backend restart.
+
+Streamlit displays a confirmation chat bubble with the operation, arguments, paper/live mode,
+and **Confirm / Reject** buttons. Text input is disabled only in that conversation. The backend
+also rejects new `TEXT` turns there with 409 until its pending decisions are resolved. Other chats
+for the same user stay usable, and refreshing the browser reloads pending approvals from storage.
+
+Decisions are claimed on disk before execution. Retrying the same confirmation returns its saved
+response without repeating the tool; changing its decision returns 409. Changing Alpaca credentials
+or paper/live mode requires rejecting the old proposal and requesting a new one. `completed` means
+the approval continuation finished, **not** that a market order has filled; inspect the tool's order
+status. Rejections never execute the requested write.
+
+If approved execution or the subsequent model reply fails, the state is `outcome_unknown`; a process crash
+can leave `processing`. These states block that conversation and prevent automatic replay. Check
+the Alpaca account/order status before making any new trading request in another conversation.
+There is no automatic reconciliation/unlock endpoint yet. A failed final storage write likewise
+leaves the durable processing claim in place. Do not delete that claim to retry an order blindly.
+If a rejection's model reply fails before the final save, the operation returns to pending and
+the rejection can be retried safely, since no write was approved.
+This prevents application retries of a confirmation, but does not guarantee broker-level exactly-once
+execution or deduplicate separately approved proposals in other chats.
+
+Approval events in `logs/backend.log` include `tool_approval_requested`, `tool_approval_decided`,
+and `tool_approval_outcome_unknown`, with request/session IDs and the decision's confirmation ID.
+Tool arguments and keys are not added to these logs. The MCP write retry override targets the
+pinned Agent Framework version; keep the approval and MCP tests passing when upgrading it.
 
 PowerShell example:
 

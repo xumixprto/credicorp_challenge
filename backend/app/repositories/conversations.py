@@ -11,19 +11,33 @@ from filelock import AsyncFileLock
 from pydantic import Field
 
 from backend.app.core.errors import ApplicationError
-from shared.conversations import ConversationDetail, ConversationSummary
+from backend.app.schemas.agent import AgentResponse
+from shared.conversations import ConversationDetail, ConversationModel, ConversationSummary
 
 logger = logging.getLogger("credicorp.backend.storage")
+
+
+class StoredApproval(ConversationModel):
+    framework_request: dict[str, Any]
+    account_fingerprint: str
+    response: AgentResponse | None = None
+
+
+class StoredReply(ConversationModel):
+    request: dict[str, Any]
+    response: AgentResponse
 
 
 class StoredConversation(ConversationDetail):
     schema_version: Literal[1] = 1
     framework_version: str = "1.23.0"
     agent_session: dict[str, Any] = Field(default_factory=dict)
+    approvals: dict[str, StoredApproval] = Field(default_factory=dict)
+    replies: dict[str, StoredReply] = Field(default_factory=dict)
 
     def public_detail(self) -> ConversationDetail:
         return ConversationDetail.model_validate(
-            self.model_dump(exclude={"schema_version", "framework_version", "agent_session"})
+            self.model_dump(include=set(ConversationDetail.model_fields))
         )
 
 

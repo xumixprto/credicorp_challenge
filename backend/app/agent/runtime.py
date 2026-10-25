@@ -1,7 +1,14 @@
 import asyncio
 import logging
 
-from agent_framework import Agent, AgentSession, InMemoryHistoryProvider, MCPStdioTool
+from agent_framework import (
+    Agent,
+    AgentResponse,
+    AgentSession,
+    InMemoryHistoryProvider,
+    MCPStdioTool,
+    Message,
+)
 from agent_framework.openai import OpenAIChatClient
 from openai import (
     APIConnectionError,
@@ -16,6 +23,7 @@ from backend.app.core.config import Settings
 from backend.app.core.errors import ApplicationError
 from backend.app.middleware.agent_logging import AgentLoggingMiddleware
 from backend.app.middleware.function_logging import FunctionLoggingMiddleware
+from backend.app.middleware.tool_approval import ToolApprovalMiddleware
 from backend.app.tools import get_tools
 
 logger = logging.getLogger("credicorp.backend.agent")
@@ -36,7 +44,11 @@ def build_agent(
         ),
         tools=[*get_tools(settings), *([alpaca] if alpaca is not None else [])],
         context_providers=[InMemoryHistoryProvider(source_id="conversation-history")],
-        middleware=[AgentLoggingMiddleware(), FunctionLoggingMiddleware()],
+        middleware=[
+            AgentLoggingMiddleware(),
+            ToolApprovalMiddleware(),
+            FunctionLoggingMiddleware(),
+        ],
         default_options={"store": False},
     )
 
@@ -46,7 +58,7 @@ class AgentRuntime:
         self.settings = settings
         self.alpaca: MCPStdioTool | None = None
 
-    async def run(self, query: str, session: AgentSession) -> str:
+    async def run(self, query: str | Message, session: AgentSession) -> AgentResponse:
         key = self.settings.openai_api_key.get_secret_value().strip()
         if not key:
             raise ApplicationError(
@@ -60,11 +72,17 @@ class AgentRuntime:
                     result = await build_agent(self.settings, client, self.alpaca).run(
                         query, session=session
                     )
-                    if not result.text.strip():
+                    if isinstance(query, Message) and any(
+                        content.type == "function_result" and content.exception
+                        for message in result.messages
+                        for content in message.contents
+                    ):
+                        raise ApplicationError(502, "The continuation includes a failed tool call.")
+                    if not result.text.strip() and not result.user_input_requests:
                         raise ApplicationError(
                             502, "The agent returned an empty reply. Please retry."
                         )
-                    return result.text
+                    return result
         except ApplicationError:
             raise
         except Exception as exc:

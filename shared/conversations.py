@@ -1,7 +1,7 @@
 """Public conversation contracts shared by the API and Streamlit client."""
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,5 +36,16 @@ class ConversationSummary(ConversationModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class OperationConfirmation(ConversationModel):
+    confirmation_id: UUID = Field(default_factory=uuid4)
+    tool_name: str
+    arguments: dict[str, Any]
+    paper_trading: bool
+    status: Literal["pending", "processing", "completed", "rejected", "outcome_unknown"] = "pending"
+    approved: bool | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ConversationDetail(ConversationSummary):
     messages: list[ConversationMessage] = Field(default_factory=list)
+    confirmations: list[OperationConfirmation] = Field(default_factory=list)
