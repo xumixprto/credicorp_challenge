@@ -228,6 +228,13 @@ identifiers restores that conversation's framework state before running the next
 There is no authentication yet; user IDs partition local development data, rather than proving
 the caller's identity.
 
+Stock investment requests can use **`build_investment_assessment`**, a deterministic calculation
+tool for 6–36-month horizons. The agent first retrieves filing evidence and Alpaca market data,
+then passes structured observations to this separate tool. Risk profiles are **1 Conservative,
+2 Moderate (default), 3 Aggressive**. Missing filings or insufficient evidence are stated plainly;
+recommendations never automatically place trades. See the [investment tool guide](backend/app/investment/README.md)
+for input/output schemas, formulas, limitations, and `config.yaml` settings.
+
 Run traces and evaluations are also available in the **Judge** tab. Each new agent invocation is
 recorded in `data/evaluations/runs.csv`; `POST /judge` evaluates selected or missing runs in batches
 and saves scores to `evaluations.csv`, replacing the previous evaluation for each run.

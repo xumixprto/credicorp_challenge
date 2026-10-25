@@ -1,4 +1,14 @@
-# Document pipeline settings. Paths are relative to the repository root.
+# Application settings. Paths are relative to the repository root.
+investment:
+  weights:
+    fundamentals: 0.35
+    trends: 0.25
+    valuation: 0.25
+    risk: 0.15
+  dcf:
+    enabled: false
+  # All profiles, score bands and remaining defaults: backend/app/investment/config.py.
+  # Override settings here; see backend/app/investment/README.md.
 storage:
   root: data/documents
   sqlite_timeout_seconds: 30

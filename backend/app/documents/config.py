@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from backend.app.evaluation.config import EvaluationConfig
+from backend.app.investment.config import InvestmentConfig
 from shared.settings import PROJECT_ROOT
 
 
@@ -158,6 +159,7 @@ class ReindexConfig(ConfigModel):
 
 
 class DocumentConfig(ConfigModel):
+    investment: InvestmentConfig = Field(default_factory=InvestmentConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
