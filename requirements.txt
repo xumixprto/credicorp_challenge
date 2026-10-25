@@ -8,6 +8,7 @@ agent-framework-core==1.23.0
 agent-framework-openai==1.17.0
 mcp==2.3.0
 uv==0.13.5
+yfinance==1.7.0
 openai>=3.37,<4.0
 filelock>=4.2,<5.0
 docling==2.142.1

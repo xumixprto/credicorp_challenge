@@ -88,6 +88,9 @@ class DCFConfig(Model):
 
 
 class InvestmentConfig(Model):
+    history_days: int = Field(default=400, ge=90, le=730)
+    market_feed: str = "iex"
+    data_timeout_seconds: float = Field(default=60, gt=0, le=300)
     weights: Weights = Field(default_factory=Weights)
     profiles: dict[int, RiskProfile] = Field(
         default_factory=lambda: {

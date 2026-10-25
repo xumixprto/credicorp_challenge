@@ -71,7 +71,8 @@ def assess_financial_risk(
         warnings.append("Historical price series is stale relative to the analysis date.")
     if len(returns) >= config.min_price_returns:
         rs = list(returns.values())
-        source = [market.source.id] if market.source else []
+        history_source = market.history_source or market.source
+        source = [history_source.id] if history_source else []
         annualizer = sqrt(config.trading_days_per_year)
         peak, drawdown = values[0], 0.0
         for price in values:

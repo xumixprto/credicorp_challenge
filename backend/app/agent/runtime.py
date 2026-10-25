@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from agent_framework import (
     Agent,
@@ -34,7 +35,7 @@ logger = logging.getLogger("credicorp.backend.agent")
 def build_agent(
     settings: Settings, client: AsyncOpenAI, alpaca: MCPStdioTool | None = None
 ) -> Agent:
-    local_tools = get_tools(settings)
+    local_tools = get_tools(settings, alpaca=alpaca) if alpaca is not None else get_tools(settings)
     trace = active_run.get()
     if trace is not None:
         trace.configuration_json["available_tools"] = [
@@ -46,10 +47,12 @@ def build_agent(
         name="CredicorpAgent",
         client=OpenAIChatClient(model=settings.openai_model, async_client=client),
         instructions=SYSTEM_INSTRUCTIONS
+        + f"\nCurrent UTC date: {datetime.now(UTC).date().isoformat()}."
         + (
             "\nAlpaca tools are connected; use their advertised schemas."
             if alpaca is not None
-            else "\nAlpaca is not configured in this server. Live market data is unavailable."
+            else "\nAlpaca is not configured. The assessment can fetch Yahoo financials, but "
+            "Alpaca market data is unavailable."
         ),
         tools=[*local_tools, *([alpaca] if alpaca is not None else [])],
         context_providers=[InMemoryHistoryProvider(source_id="conversation-history")],

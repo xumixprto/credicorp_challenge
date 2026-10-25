@@ -1,101 +1,75 @@
 # Investment assessment
 
-`build_investment_assessment` is the only new agent-facing tool. It accepts extracted financial
-observations and market data, runs deterministic Python calculations, and returns an assessment.
-It has no ChromaDB, Alpaca, OpenAI, database or trading client. Existing retrieval and Alpaca tools
-remain independently registered. The agent retrieves evidence, extracts observations, calls this
-tool, and explains its output. An assessment never submits an order or bypasses existing approvals.
+`build_investment_assessment` fetches actual data before running deterministic Python calculations.
+The agent researches filings, risks and market/news context through its other relevant tools, then
+uses this tool for the numerical assessment. No copied price arrays, financial observations,
+chat-state caches or run-history lookups are required. No trade is submitted by this tool.
 
-All scores, bands and recommendation thresholds are **unvalidated heuristics**. They are not
-probabilities, calibrated forecasts, sector-adjusted benchmarks or assurances of returns.
+## Tool input
+
+```json
+{"ticker": "MSFT", "risk_tolerance": 2, "horizon_months": 12}
+```
+
+Call once per ticker. Risk accepts strict integers **1 Conservative, 2 Moderate, 3 Aggressive**;
+default **2**. Investment horizon accepts **6?36 months**, default **12**. This horizon is separate
+from the daily-history lookback. Current assessments only: no historical as-of-date input.
+
+## Data fetching
+
+- **yfinance 1.7.0**, no API key: annual and quarterly income statements, balance sheets, cash
+  flows, listing/financial currencies, equity classification and current shares outstanding.
+- **Existing Alpaca MCP connection**, using the configured Alpaca credentials: fully adjusted
+  daily stock/SPY bars and a separate unadjusted latest trade for valuation. Only the read-only
+  `get_stock_bars` and `get_stock_latest_trade` methods are called internally. No extra MCP server
+  is started per assessment. IEX is the default and is not consolidated exchange coverage.
+- Provider calls and normalized Yahoo observations are captured in `runs.csv` tool traces for
+  debugging and judging. Traces are an audit trail, never an input cache. `data_collection` in the
+  response reports sources, timestamps, observation/bar counts and quote date. Backend logs include
+  fetch status/duration and assessment coverage limitations. Follow-ups fetch again automatically.
+
+The Yahoo adapter uses an explicit field mapping in `providers/yahoo.py`. It preserves currency,
+EPS units, fiscal period ends, and annual versus quarterly periods; capex cash outflows become
+positive expenditure amounts. Missing/NaN/infinite values are excluded, never replaced by zero.
+Financial currency must match the USD market data; no implicit FX conversion is performed.
+Yahoo does not provide a verified filing date for each observation: `filing_date` stays null and
+`retrieved_date` is stored separately. Flow starts are inferred from adjacent fiscal period ends,
+or calendar frequency when necessary; this limitation is returned explicitly. Sources are marked
+`financial_data`, never falsely labeled 10-K/10-Q. Provider shares are dated at observation time,
+not presented as a verified SEC publication date. Annual/interim coverage is checked by actual
+observation periods rather than requiring a filing label on Yahoo data.
+
+Incomplete market pages and invalid/duplicate/future bars are excluded. Today's unfinished daily
+bar is excluded; adjusted closes support risk calculations, while the separate unadjusted trade
+supports valuation. Failures remain explicit and do not produce fabricated data or trigger trades.
+If Yahoo cannot identify the company, the tool returns `data_unavailable`. Non-equities (including
+AGG and other ETFs) return `unsupported_asset`, not a corporate NO TRADE recommendation. Non-USD
+listings return `unsupported_currency`. Missing Alpaca data allows partial financial calculations
+with explicit missing market evidence and NO TRADE when coverage is inadequate.
+
+No new document ingestion or reindex is required. Retrieved filings remain useful for qualitative
+context and for identifying discrepancies with Yahoo's normalized statements. The agent must
+report discrepancies, not silently mix incompatible periods/providers. yfinance is an unofficial
+Yahoo integration; availability is not guaranteed. See its [project documentation](https://github.com/ranaroussi/yfinance)
+for data-use terms. All scores remain unvalidated heuristics, not calibrated forecasts.
 
 ## Structure
 
 | File | Responsibility |
 | --- | --- |
-| `models.py` | Pydantic inputs, observations, periods, provenance and outputs |
-| `config.py` | Three risk profiles, score bands, weights, thresholds and DCF assumptions |
-| `data.py` | Point-in-time filtering, unit normalization, period matching and derived inputs |
-| `fundamentals.py` | `analyze_fundamentals` and deterministic financial ratios |
-| `trends.py` | `analyze_financial_trends`, slopes, acceleration and rolling variation |
-| `risk.py` | `assess_financial_risk`, separate business and market risk measurements |
-| `valuation.py` | `analyze_valuation`, multiples and optional five-year FCFF DCF |
+| `providers/yahoo.py` | Fetch and normalize financial statements |
+| `providers/alpaca.py` | Fetch and validate daily history and latest trade via existing MCP |
+| `providers/__init__.py` | Provider timeouts, logging and audit records |
+| `../tools/investment.py` | Simple tool input; coordinate providers and calculations |
+| `models.py` | Internal typed observations, periods, provenance and output |
+| `config.py` | Provider settings, risk profiles, score bands, thresholds and DCF assumptions |
+| `data.py` | Units, period matching and derived inputs |
+| `fundamentals.py`, `trends.py`, `risk.py`, `valuation.py` | Deterministic metric calculations |
 | `service.py` | Coverage, suitability, composite scoring and recommendation rules |
-| `../tools/investment.py` | Agent Framework adapter registering the single tool |
 
-## Tool input
-
-`ticker`, `financial_data`, and `market_data` are required. Both data objects carry the same ticker
-and share class. `risk_tolerance` accepts only integers **1, 2, 3**, default **2 (Moderate)**.
-`horizon_months` accepts integers **6–36**, default **12**. `as_of_date` defaults to the UTC date.
-The agent discloses the default investor assumptions. Missing data is allowed; malformed data is
-rejected. No shared cached-data-reference interface is supported by the current tools.
-
-Minimal valid input (returns NO TRADE with missing-data reasons):
-
-```json
-{
-  "ticker": "AAPL",
-  "risk_tolerance": 2,
-  "horizon_months": 12,
-  "as_of_date": "2026-03-31",
-  "financial_data": {"ticker": "AAPL", "observations": []},
-  "market_data": {"ticker": "AAPL", "currency": "USD"}
-}
-```
-
-Each financial observation has this shape (illustrative values, not actual company results):
-
-```json
-{
-  "metric": "revenue",
-  "value": 1000,
-  "units": "currency",
-  "scale": "millions",
-  "currency": "USD",
-  "period": {"kind": "annual", "start": "2025-01-01", "end": "2025-12-31"},
-  "filing_date": "2026-02-15",
-  "source": {"id": "original-citation-id", "kind": "10-K", "filename": "filing.pdf", "page": 42},
-  "is_estimate": false
-}
-```
-
-- Units: `currency` or `currency_per_share` (EPS only). Scale: `ones`, `thousands`, `millions`,
-  `billions`; EPS must use `ones`. Values normalize to base currency units. No FX conversion.
-- Period kinds: `annual` (330–380 days), `quarterly` (70–110), `ytd` (70–380), or `instant`.
-  Flow observations require start/end; balance-sheet observations require an instant end date.
-  Different fiscal year-ends are accepted. Annual and YTD figures are never mixed in ratios.
-- Metric names: `revenue`, `gross_profit`, `operating_income`, `net_income`, `diluted_eps`,
-  `operating_cash_flow`, `capital_expenditure`, `free_cash_flow`, `ebitda`,
-  `depreciation_amortization`, `interest_expense`, `pretax_income`, `income_tax`, `equity`,
-  `total_debt`, `cash`, `current_assets`, `current_liabilities`, `total_assets`,
-  `total_liabilities`, `invested_capital`, `nopat`, `change_noncash_working_capital`,
-  `free_cash_flow_to_firm`.
-- Expenses, capex and debt/asset/liability balances use positive amounts; profits, cash flows,
-  equity and changes in working capital can be negative. Do not turn a negative cash-flow
-  presentation of capex into negative expenditure: supply the positive amount spent.
-- Source references require `id` and `kind` (`10-K`, `10-Q`, `market`, `other`), with optional
-  `filename`, `page`, `section`, `url`. Preserve original citations. A 10-Q mentioning a 10-K
-  is not proof that the 10-K was retrieved. Data is supplied by the caller; citations are retained,
-  not independently authenticated by this calculation-only tool.
-
-`market_data` accepts:
-
-| Field | Meaning |
-| --- | --- |
-| `ticker`, `currency` | Matching share class; currency defaults to USD |
-| `source` | Source reference for stock prices, e.g. an Alpaca tool result |
-| `quote` | `{ "date": "2026-03-31", "price": 150 }`; valuation uses the unadjusted quote/close |
-| `prices` | Up to 1,500 dated daily `{date, price, adjusted_price?}` observations, unique dates |
-| `benchmark_ticker`, `benchmark_prices`, `benchmark_source` | SPY daily series and its source |
-| `adjustment_as_of_date` | Knowledge date of the price adjustments; avoid future corporate-action adjustments |
-| `shares_outstanding` | `{value, date, source}` in actual shares, not millions; same share class and split basis as price |
-| `market_capitalization` | Optional `{value, date, source}` in base currency units |
-| `position_quantity` | Optional `{value, date, source}` proving existing holdings; omitted means unknown |
-
-Request bounded histories (typically 6–12 months of daily prices) from the existing tools, rather
-than filling context with entire filings or maximum-size arrays. There is no new API endpoint.
-Returned `evidence` lists source references; individual metrics contain the IDs used in calculations.
+The calculation layer still accepts typed `AssessmentInput` directly for offline tests. It does
+not call providers. Only the agent-facing adapter gathers data. Existing approval middleware
+continues to protect trading tools; the assessment makes no account mutations.
 
 ## Formulas and period rules
 
@@ -173,7 +147,7 @@ suitability limits, optional component weight overrides, evidence requirements a
 | 2 Moderate | 70 / 30 | 0.65 | 50 / 60 | 20% | 4% | 55 |
 | 3 Aggressive | 65 / 25 | 0.55 | 65 / 80 | 10% | 2.5% | 45 |
 
-BUY needs adequate coverage, current data, usable annual filing evidence, acceptable financial
+BUY needs adequate coverage, current data, usable annual financial observations, acceptable financial
 quality, known risk suitability, and valuation support. Conservative defaults require an available
 DCF safety margin, so enabling DCF and supplying its inputs is necessary for its BUY. Other profiles
 can use their FCF yield floor when DCF is unavailable; that is a relative-valuation heuristic, not
@@ -193,6 +167,9 @@ No document reindex is required. Restart FastAPI to apply changes consistently.
 
 | Parameter | Default / purpose |
 | --- | --- |
+| `investment.history_days` | 400; daily stock/SPY lookback, 90?730 calendar days |
+| `investment.market_feed` | iex; Alpaca feed permitted by your subscription |
+| `investment.data_timeout_seconds` | 60; timeout per provider operation, maximum 300 seconds |
 | `investment.weights.fundamentals` | 0.35 |
 | `investment.weights.trends` | 0.25 |
 | `investment.weights.valuation` | 0.25 |
@@ -216,7 +193,7 @@ No document reindex is required. Restart FastAPI to apply changes consistently.
 | `investment.max_financial_age_days` | 450; latest financial and annual/TTM denominator freshness |
 | `investment.max_quote_age_days` | 7; quote, market cap, history end and holding freshness |
 | `investment.max_share_age_days` | 120; share count freshness |
-| `investment.interim_required_after_days` | 150; require 10-Q evidence beyond this annual period age |
+| `investment.interim_required_after_days` | 150; require newer interim observations beyond this annual period age |
 | `investment.severe_interest_coverage` | 1; lower values trigger severe-risk block |
 | `investment.severe_current_ratio` | 0.5; lower values trigger severe-risk block |
 | `investment.consistency_tolerance` | 0.02; relative reconciliation tolerance |

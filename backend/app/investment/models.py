@@ -51,7 +51,7 @@ class Model(BaseModel):
 
 class SourceReference(Model):
     id: str = Field(min_length=1, description="Original citation_id or market tool reference.")
-    kind: Literal["10-K", "10-Q", "market", "other"]
+    kind: Literal["10-K", "10-Q", "financial_data", "market", "other"]
     filename: str | None = None
     page: int | None = Field(default=None, ge=1)
     section: str | None = None
@@ -86,13 +86,16 @@ class FinancialObservation(Model):
     scale: Literal["ones", "thousands", "millions", "billions"] = "ones"
     currency: str = Field(pattern=r"^[A-Z]{3}$")
     period: ReportingPeriod
-    filing_date: date
+    filing_date: date | None = None
+    retrieved_date: date | None = None
     source: SourceReference
     is_estimate: bool = False
 
     @model_validator(mode="after")
     def consistency(self):
-        if self.filing_date < self.period.end:
+        if self.filing_date is None and self.retrieved_date is None:
+            raise ValueError("A filing date or provider retrieval date is required")
+        if self.filing_date is not None and self.filing_date < self.period.end:
             raise ValueError("Filing date cannot precede the reporting period end")
         if (self.metric in BALANCE_METRICS) != (self.period.kind == "instant"):
             raise ValueError(
@@ -142,6 +145,7 @@ class MarketData(Model):
     ticker: str
     currency: str = Field(default="USD", pattern=r"^[A-Z]{3}$")
     source: SourceReference | None = None
+    history_source: SourceReference | None = None
     quote: PriceObservation | None = None
     prices: list[PriceObservation] = Field(default_factory=list, max_length=1500)
     benchmark_ticker: Literal["SPY"] = "SPY"

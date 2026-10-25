@@ -101,6 +101,23 @@ def test_retriever_posts_query_and_propagates_request_id(app_settings):
     assert result["status"] == "ok"
 
 
+def test_retriever_forwards_document_filter(app_settings):
+    def handle(request):
+        assert json.loads(request.content) == {
+            "query": "Annual cash flow operating activities capex",
+            "document_ids": ["nvda"],
+        }
+        return httpx.Response(200, json=evidence_response().model_dump())
+
+    result = asyncio.run(
+        DocumentRetriever(app_settings, httpx.MockTransport(handle)).retrieve(
+            "Annual cash flow operating activities capex", document_ids=["nvda"]
+        )
+    )
+    assert result["status"] == "ok"
+    assert "document_ids" in create_retrieval_tool(app_settings).parameters()["properties"]
+
+
 @pytest.mark.parametrize("failure", ["timeout", "server", "schema", "json"])
 def test_retrieval_errors_are_not_reported_as_no_results(app_settings, failure):
     def handle(request):

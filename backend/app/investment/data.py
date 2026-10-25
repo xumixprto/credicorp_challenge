@@ -37,7 +37,11 @@ class FinancialContext:
         grouped: dict[tuple, list] = {}
         scales = {"ones": 1, "thousands": 1e3, "millions": 1e6, "billions": 1e9}
         for obs in data.observations:
-            if obs.filing_date > as_of or obs.period.end > as_of or obs.is_estimate:
+            if (
+                (obs.filing_date or obs.retrieved_date) > as_of
+                or obs.period.end > as_of
+                or obs.is_estimate
+            ):
                 self.excluded += 1
                 continue
             if obs.currency != currency:
@@ -47,8 +51,8 @@ class FinancialContext:
             eligible.append(obs)
             grouped.setdefault((obs.metric, *period_key(obs.period)), []).append(obs)
         for key, group in grouped.items():
-            latest_date = max(o.filing_date for o in group)
-            latest = [o for o in group if o.filing_date == latest_date]
+            latest_date = max(o.filing_date or o.retrieved_date for o in group)
+            latest = [o for o in group if (o.filing_date or o.retrieved_date) == latest_date]
             values = [o.value * scales[o.scale] for o in latest]
             if max(values) - min(values) > config.consistency_tolerance * max(
                 abs(v) for v in values

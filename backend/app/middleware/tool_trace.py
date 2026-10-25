@@ -1,11 +1,22 @@
 import json
 from collections.abc import Awaitable, Callable
+from datetime import date, datetime
 from time import perf_counter
 from uuid import uuid4
 
 from agent_framework import Content, FunctionInvocationContext, FunctionMiddleware
+from pydantic import BaseModel
 
 from backend.app.evaluation.trace import active_run
+
+
+def _json_default(value: object) -> object:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    # Never stringify unknown internal objects or credentials.
+    return "[unserializable]"
 
 
 def serialize_result(value: object) -> object:
@@ -14,7 +25,7 @@ def serialize_result(value: object) -> object:
     if isinstance(value, list):
         return [serialize_result(item) for item in value]
     # No repr/exception strings: avoid accidental capture of internal objects or credentials.
-    return json.loads(json.dumps(value, default=lambda _: "[unserializable]"))
+    return json.loads(json.dumps(value, default=_json_default))
 
 
 class ToolTraceMiddleware(FunctionMiddleware):

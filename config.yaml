@@ -1,5 +1,8 @@
 # Application settings. Paths are relative to the repository root.
 investment:
+  history_days: 400
+  market_feed: iex
+  data_timeout_seconds: 60
   weights:
     fundamentals: 0.35
     trends: 0.25

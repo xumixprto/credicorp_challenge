@@ -10,7 +10,9 @@ from backend.app.investment.models import (
 
 
 def quote_for(market: MarketData, as_of: date):
-    quotes = [p for p in [market.quote, *market.prices] if p is not None and p.date <= as_of]
+    # Reused adjusted history is for returns; it must not replace an unadjusted valuation quote.
+    prices = [] if market.history_source is not None else market.prices
+    quotes = [p for p in [market.quote, *prices] if p is not None and p.date <= as_of]
     return max(quotes, key=lambda p: p.date) if quotes else None
 
 
