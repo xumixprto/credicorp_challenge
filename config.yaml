@@ -1,0 +1,93 @@
+# Document pipeline settings. Paths are relative to the repository root.
+storage:
+  root: data/documents
+  sqlite_timeout_seconds: 30
+  lock_timeout_seconds: 5
+
+ingestion:
+  max_files: 20
+  max_file_mb: 50
+  max_batch_mb: 200
+  skip_failed_files: true
+
+parsing:
+  format_map:
+    pdf: pdf
+    docx: docx
+    md: md
+    markdown: md
+    html: html
+    htm: html
+    pptx: pptx
+    xlsx: xlsx
+    csv: csv
+    txt: md
+    png: image
+    jpg: image
+    jpeg: image
+    tiff: image
+  max_pages: 500
+  timeout_seconds: 180
+  accelerator: auto
+  num_threads: 4
+  artifacts_path: null
+  pdf:
+    do_ocr: true
+    ocr_engine: rapidocr
+    ocr_languages: []
+    force_full_page_ocr: false
+    do_table_structure: true
+    table_mode: accurate
+    do_cell_matching: true
+    images_scale: 1.0
+    generate_page_images: false
+    generate_picture_images: false
+
+chunking:
+  tokenizer: cl100k_base
+  max_tokens: 512
+  merge_peers: true
+  contextualize: true
+  repeat_table_header: true
+  omit_header_on_overflow: false
+  always_emit_headings: false
+  table_strategy: contextual_rows
+  infer_table_headers: true
+  table_header_max_rows: 8
+  table_context_items: 6
+  table_context_max_tokens: 128
+
+embeddings:
+  model: text-embedding-3-small
+  dimensions: 1536
+  base_url: https://api.openai.com/v1
+  batch_size: 64
+  max_batch_tokens: 200000
+  max_input_tokens: 8191
+  max_concurrency: 4
+  timeout_seconds: 60
+  max_retries: 3
+  cache_enabled: true
+
+chroma:
+  persist_directory: data/chroma
+  collection_prefix: documents
+  write_batch_size: 512
+  hnsw:
+    space: cosine
+    ef_construction: 200
+    ef_search: 100
+    max_neighbors: 16
+    num_threads: 4
+    batch_size: 100
+    sync_threshold: 1000
+    resize_factor: 1.2
+
+retrieval:
+  top_k: 5
+  max_top_k: 50
+  max_distance: null
+
+reindex:
+  force_reparse: false
+  force_reembed: false

@@ -12,9 +12,11 @@ if str(Path(__file__).resolve().parents[1]) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from frontend.components.chat import render_chat
-from frontend.components.sidebar import render_sidebar
+from frontend.components.documents import render_documents
+from frontend.components.sidebar import render_navigation, render_sidebar
 from frontend.core.config import get_settings
 from frontend.services.agent_client import AgentAPIError, AgentClient
+from frontend.services.document_client import DocumentClient
 from frontend.state.chat import initialize_state
 from shared.conversations import ConversationDetail
 from shared.logging_config import configure_logging
@@ -22,7 +24,7 @@ from shared.logging_config import configure_logging
 
 def main() -> None:
     st.set_page_config(
-        page_title="Agent Chat | Credicorp",
+        page_title="Credicorp Workspace",
         page_icon="◈",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -35,6 +37,13 @@ def main() -> None:
     if "session_logged" not in st.session_state:
         logging.getLogger("credicorp.frontend").info("browser_session_started")
         st.session_state.session_logged = True
+    if render_navigation() == "Document Ingestion":
+        render_documents(
+            DocumentClient(
+                str(settings.api_base_url), timeout=float(settings.document_api_timeout_seconds)
+            )
+        )
+        return
     client = AgentClient(str(settings.api_base_url), timeout=float(settings.api_timeout_seconds))
     try:
         conversations = client.list_conversations(st.session_state.user_id)

@@ -1,8 +1,9 @@
 # Credicorp Agent Chat
 
 A FastAPI backend and a Streamlit chat application powered by Microsoft Agent Framework and
-OpenAI. The UI has one **Agent Chat** section, a sidebar of saved conversations, and a chat area
-with a message composer. Context and messages survive browser refreshes and application restarts.
+OpenAI. The sidebar switches between **Agent Chat**, with saved conversations and a chat composer,
+and **Document Ingestion**, with drag-and-drop document uploads. Chat context and messages survive
+browser refreshes and application restarts.
 
 ## Setup
 
@@ -131,6 +132,24 @@ $payload = @{
 Invoke-RestMethod -Uri http://127.0.0.1:8000/agent -Method Post -ContentType application/json -Body $payload
 ```
 
+Document APIs are also available: `POST /docs/ingest` for batch file uploads,
+`POST /docs/reindex` to rebuild safely from saved originals, and `POST /docs/retrieve` to search
+with citation metadata. Pipeline settings live in [config.yaml](config.yaml). See the
+[document pipeline README](backend/app/documents/README.md) for curl examples, persistence details,
+and every configurable parameter. The API's interactive Swagger page remains at `GET /docs`.
+
+In Streamlit, choose **Document Ingestion**, drag in one or more files, then click **Ingest documents**.
+The app sends one multipart batch to FastAPI and shows an elapsed-time loading indicator until
+processing finishes. The endpoint does not expose intermediate progress, so no estimated percentage
+is shown. Results distinguish added, updated, unchanged, duplicate, and failed documents. File names
+serve as source IDs: upload the same name to update a document; different documents need distinct
+names. Results stay visible when switching sections, and switching does not resubmit files.
+
+Document requests use `DOCUMENT_API_TIMEOUT_SECONDS` (600 seconds by default), independently of chat
+requests. If a request times out, the backend may finish processing; retry the same files to check
+their status. The backend enforces the limits and supported formats from `config.yaml`; Streamlit's
+own upload limit also applies (200 MB per file by default, configurable with `server.maxUploadSize`).
+
 ## Structure
 
 ```text
@@ -138,11 +157,12 @@ backend/
   app/
     main.py                Application factory and lifecycle
     api/router.py          Route registration
-    api/routes/            Health, agent, and conversation endpoints
+    api/routes/            Health, agent, conversation, and document endpoints
     agent/                 Agent factory, OpenAI runtime, and system instructions
     middleware/            Request tracing, API errors, and agent invocation logging
     tools/                 Future tool registration (currently empty)
     repositories/          JSON storage, atomic writes, and conversation locking
+    documents/             Docling, HybridChunker, embedding cache, and persistent Chroma indexing
     schemas/               Validated request/response models
     services/              Restore, run, and save conversation orchestration
     core/                  Backend configuration and application errors
@@ -165,6 +185,8 @@ tests/
 .streamlit/config.toml     Theme and local server defaults
 .env.example              Configuration template
 logs/                     Generated logs, ignored by Git
+config.yaml               Central document-pipeline configuration
+data/                     Generated original documents, artifacts, cache, and Chroma (Git-ignored)
 ```
 
 Edit `backend/app/agent/prompts.py` for system instructions. Add future tools under
@@ -214,11 +236,13 @@ after changing settings.
 | --- | --- | --- |
 | `API_BASE_URL` | `http://127.0.0.1:8000` | Backend address used by Streamlit |
 | `API_TIMEOUT_SECONDS` | `90` | Streamlit HTTP timeout; keep above the agent timeout |
-| `OPENAI_API_KEY` | Empty | Required for generating replies |
+| `DOCUMENT_API_TIMEOUT_SECONDS` | `600` | Streamlit HTTP timeout for document uploads and ingestion |
+| `OPENAI_API_KEY` | Empty | Required for generating replies and document embeddings |
 | `OPENAI_MODEL` | `gpt-4.1-mini` | Model passed to the OpenAI provider |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Maximum duration of an agent run |
 | `CHAT_USER_ID` | UUID from the example above | Stable Streamlit development identity |
 | `SESSIONS_DIR` | `shared/sessions` | Storage root, absolute or relative to this repo |
+| `DOCS_CONFIG_PATH` | `config.yaml` | Central document-pipeline YAML configuration |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR, or CRITICAL |
 | `LOG_DIR` | `logs` | Absolute path or path relative to this repo |
 | `LOG_MAX_BYTES` | `5242880` | Rotate each log after 5 MiB |
@@ -260,6 +284,8 @@ The chat tests use Streamlit's AppTest and FastAPI's TestClient. Agent Framework
 SDK run normally; only the outbound OpenAI HTTP boundary is mocked, so tests need no API key and
 incur no API charges. Checks cover restored context after restart, user/session isolation,
 browser refreshes, retries, atomic write failures, corrupt files, model failures, and concurrent turns.
+Document tests exercise real Docling parsing/chunking and persistent Chroma with mocked embedding
+HTTP responses, including duplicate detection, updates, restart recovery, and safe reindexing.
 
 Framework references: [FastAPI request models](https://fastapi.tiangolo.com/tutorial/body/),
 [Streamlit chat UI](https://docs.streamlit.io/develop/tutorials/chat-and-llm-apps/build-conversational-apps),

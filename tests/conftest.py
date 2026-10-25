@@ -3,6 +3,7 @@ import json
 
 import httpx2
 import pytest
+import yaml
 from openai import AsyncOpenAI
 
 from backend.app.core.config import Settings
@@ -71,7 +72,22 @@ def model_stub(monkeypatch):
 
 @pytest.fixture
 def app_settings(tmp_path):
-    return Settings(openai_api_key="test-key", sessions_dir=tmp_path / "sessions", _env_file=None)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "storage": {"root": str(tmp_path / "documents")},
+                "chroma": {"persist_directory": str(tmp_path / "chroma")},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return Settings(
+        openai_api_key="test-key",
+        sessions_dir=tmp_path / "sessions",
+        docs_config_path=config_path,
+        _env_file=None,
+    )
 
 
 @pytest.fixture

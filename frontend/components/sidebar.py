@@ -7,12 +7,22 @@ from frontend.state.chat import select_conversation
 from shared.conversations import ConversationSummary
 
 
-def render_sidebar(client: AgentClient, conversations: list[ConversationSummary]) -> None:
+def render_navigation() -> str:
     with st.sidebar:
         st.markdown("### ◈ Credicorp")
         st.caption("AGENT WORKSPACE")
-        st.radio("Workspace", ["Agent Chat"], label_visibility="collapsed")
+        selected = st.radio(
+            "Workspace",
+            ["Agent Chat", "Document Ingestion"],
+            key="workspace",
+            label_visibility="collapsed",
+        )
         st.divider()
+    return selected
+
+
+def render_sidebar(client: AgentClient, conversations: list[ConversationSummary]) -> None:
+    with st.sidebar:
         if st.button(
             "New chat",
             icon=":material/add:",

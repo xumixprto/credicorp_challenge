@@ -12,6 +12,7 @@ class Settings(LoggingSettings):
     openai_model: str = "gpt-4.1-mini"
     agent_timeout_seconds: float = Field(default=60, gt=0)
     sessions_dir: Path = Path("shared/sessions")
+    docs_config_path: Path = Path("config.yaml")
 
     @property
     def resolved_sessions_dir(self) -> Path:

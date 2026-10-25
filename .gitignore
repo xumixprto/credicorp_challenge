@@ -11,6 +11,7 @@ htmlcov/
 logs/
 .streamlit/secrets.toml
 .artifacts/
+data/
 shared/sessions/*
 !shared/sessions/.gitkeep
 !shared/sessions/conversations/

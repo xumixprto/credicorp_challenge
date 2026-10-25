@@ -22,6 +22,7 @@ def register_request_logging(app: FastAPI) -> None:
         started = perf_counter()
         context = {"method": request.method, "path": request.url.path}
         try:
+            logger.info("request_started", extra=context)
             try:
                 response = await call_next(request)
             except Exception:
